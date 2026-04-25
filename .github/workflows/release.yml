@@ -28,7 +28,9 @@ jobs:
 
       - name: Install Rollup native package for runner
         shell: bash
-        run: npm install --no-save --no-package-lock $(node -p "const { platform, arch } = process; platform === 'linux' ? '@rollup/rollup-linux-' + arch + '-gnu' : platform === 'darwin' ? '@rollup/rollup-darwin-' + arch : platform === 'win32' ? '@rollup/rollup-win32-' + arch + '-msvc' : (() => { throw new Error('Unsupported platform: ' + platform) })()")
+        run: |
+          rollup_pkg=$(node -p "const { platform, arch } = process; platform === 'linux' ? '@rollup/rollup-linux-' + arch + '-gnu' : platform === 'darwin' ? '@rollup/rollup-darwin-' + arch : platform === 'win32' ? '@rollup/rollup-win32-' + arch + '-msvc' : (() => { throw new Error('Unsupported platform: ' + platform) })()")
+          npm install --no-save --no-package-lock "$rollup_pkg"
 
       - name: Build and Publish
         run: npm run publish
