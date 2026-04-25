@@ -1,3 +1,0 @@
-ancestorEntries = []
-ourEntries = [".gitignore", "package-lock.json", "package.json"]
-theirEntries = [".gitignore", "package-lock.json", "package.json"]
