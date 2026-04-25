@@ -16,7 +16,7 @@
     "build:electron": "npm run build:electron:main && npm run build:electron:preload",
     "build:electron:main": "esbuild electron/main.ts --bundle --platform=node --format=esm --outfile=dist-electron/main.js --external:electron",
     "build:electron:preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.cjs --external:electron",
-    "build:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist-electron/cli.js && chmod +x dist-electron/cli.js",
+    "build:cli": "node scripts/build-cli.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "publish": "npm run build && electron-builder --publish always"
@@ -37,6 +37,7 @@
     "@types/react-dom": "^19.2.3",
     "electron": "^39.2.7",
     "electron-builder": "^25.1.8",
+    "esbuild": "^0.27.7",
     "jsdom": "^27.3.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
