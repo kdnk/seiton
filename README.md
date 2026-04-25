@@ -31,6 +31,16 @@ Seiton assumes your working contexts are backed by:
 npm install
 ```
 
+### macOS release note
+
+If macOS shows `"Seiton" is damaged and can't be opened. You should move it to the Trash.`, remove the quarantine attribute from the installed app:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Seiton.app
+```
+
+Run this after moving `Seiton.app` into `/Applications`.
+
 ## Run
 
 Start the app:
