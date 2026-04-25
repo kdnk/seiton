@@ -381,6 +381,7 @@ describe("GitButler parsing", () => {
 
   it("writes codex hook events into tmux pane options", async () => {
     const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const notifications: Array<{ agent: string; event: string; paneId: string; cwd?: string }> = [];
     const exec: ExecFunction = async (file, args, cwd) => {
       calls.push({ file, args, cwd });
       return { stdout: "", stderr: "" };
@@ -392,7 +393,10 @@ describe("GitButler parsing", () => {
       JSON.stringify({ prompt: "Review current branch", cwd: "/repo/a" }),
       { TMUX_PANE: "%12", PWD: "/repo/a" },
       "/repo/a",
-      exec
+      exec,
+      async (payload) => {
+        notifications.push(payload);
+      }
     );
 
     expect(calls).toEqual([
@@ -429,6 +433,14 @@ describe("GitButler parsing", () => {
       {
         file: "tmux",
         args: ["set-option", "-p", "-u", "-t", "%12", "@seiton_wait_reason"],
+        cwd: "/repo/a"
+      }
+    ]);
+    expect(notifications).toEqual([
+      {
+        agent: "codex",
+        event: "user-prompt-submit",
+        paneId: "%12",
         cwd: "/repo/a"
       }
     ]);

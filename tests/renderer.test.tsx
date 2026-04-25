@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/renderer/App";
+import type { SeitonState } from "../electron/preload";
 
 describe("App", () => {
   afterEach(() => {
@@ -53,7 +54,7 @@ describe("App", () => {
     window.seiton = {
       refresh,
       sync: vi.fn(),
-      selectProjectRoot: vi.fn(),
+      addProjectRoot: vi.fn(),
       selectRegisteredProject: vi.fn(),
       focus: vi.fn(),
       renameContext: vi.fn(),
@@ -110,7 +111,7 @@ describe("App", () => {
     window.seiton = {
       refresh,
       sync: vi.fn(),
-      selectProjectRoot: vi.fn(),
+      addProjectRoot: vi.fn(),
       selectRegisteredProject: vi.fn(),
       focus: vi.fn(),
       renameContext,
@@ -157,7 +158,7 @@ describe("App", () => {
     window.seiton = {
       refresh,
       sync: vi.fn(),
-      selectProjectRoot: vi.fn(),
+      addProjectRoot: vi.fn(),
       selectRegisteredProject: vi.fn(),
       focus: vi.fn(),
       renameContext: vi.fn(),
@@ -212,7 +213,7 @@ describe("App", () => {
     window.seiton = {
       refresh,
       sync: vi.fn(),
-      selectProjectRoot: vi.fn(),
+      addProjectRoot: vi.fn(),
       selectRegisteredProject: vi.fn(),
       focus,
       renameContext: vi.fn(),
@@ -234,6 +235,98 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(focus).toHaveBeenCalledWith("/repo/a", "feature%2Fnotify-ui", "%12");
+    });
+  });
+
+  it("adds a project root through the additive IPC", async () => {
+    const addProjectRoot = vi.fn().mockResolvedValue({
+      projectRoot: "",
+      projectsWithContexts: [],
+      warnings: []
+    });
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectRoot: "",
+        projectsWithContexts: [],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      addProjectRoot,
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn(),
+      onStateUpdated: () => () => {}
+    } as never;
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add root" }));
+
+    await waitFor(() => {
+      expect(addProjectRoot).toHaveBeenCalled();
+    });
+  });
+
+  it("applies pushed state updates from Electron", async () => {
+    let listener: ((state: SeitonState) => void) | undefined;
+    const refresh = vi.fn().mockResolvedValue({
+      projectRoot: "/repo/a",
+      projectsWithContexts: [],
+      warnings: []
+    });
+    window.seiton = {
+      refresh,
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      selectRegisteredProject: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn(),
+      onStateUpdated: (next: (state: SeitonState) => void) => {
+        listener = next;
+        return () => {};
+      }
+    } as never;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(refresh).toHaveBeenCalled();
+    });
+
+    listener?.({
+      projectRoot: "/repo/a",
+      projectsWithContexts: [
+        {
+          project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+          contexts: [
+            {
+              id: "ctx-1",
+              type: "managed",
+              projectRoot: "/repo/a",
+              branch: "feature/live-update",
+              branchKey: "feature%2Flive-update",
+              tmuxSession: "s_a_feature%2Flive-update",
+              kittyTabTitle: "s_a_feature%2Flive-update",
+              codexPanes: [],
+              order: 10,
+              status: "ready"
+            }
+          ]
+        }
+      ],
+      warnings: []
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("feature/live-update")).toBeInTheDocument();
     });
   });
 
@@ -270,7 +363,7 @@ describe("App", () => {
     window.seiton = {
       refresh,
       sync: vi.fn(),
-      selectProjectRoot: vi.fn(),
+      addProjectRoot: vi.fn(),
       selectRegisteredProject: vi.fn(),
       focus: vi.fn(),
       renameContext: vi.fn(),
@@ -295,7 +388,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Install Command" }));
 
     await waitFor(() => {
-      expect(installCliCommand).toHaveBeenCalled();
-    });
+    expect(installCliCommand).toHaveBeenCalled();
   });
+});
 });

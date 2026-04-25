@@ -3,6 +3,7 @@ import { access, lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applySyncCommand, focusContext, readFullSystemSnapshot, readSystemSnapshotForCwd, removeOrphanContext, renameManagedContext } from "../src/core/commands";
+import { watchLiveUpdates } from "../src/core/live-updates";
 import {
   buildBranchKey,
   buildManagedName,
@@ -22,6 +23,8 @@ import { loadRegistry, saveRegistry } from "../src/core/registry";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
 let currentProjectRoot = process.env.SEITON_PROJECT_ROOT ?? process.cwd();
+let stopWatchingLiveUpdates: (() => void) | undefined;
+let liveUpdateTimer: NodeJS.Timeout | undefined;
 
 type AppState = {
   projectRoot: string;
@@ -37,6 +40,25 @@ type CliCommandStatus = {
   targetDirOnPath: boolean;
   pathHint?: string;
 };
+
+function broadcastState(state: AppState): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send("seiton:state-updated", state);
+  }
+}
+
+function scheduleLiveStateBroadcast(): void {
+  if (liveUpdateTimer) clearTimeout(liveUpdateTimer);
+  liveUpdateTimer = setTimeout(() => {
+    void getFullState()
+      .then((state) => {
+        broadcastState(state);
+      })
+      .catch(() => {
+        // ignore hook-side refresh failures to avoid breaking the app shell
+      });
+  }, 120);
+}
 
 async function createWindow(): Promise<void> {
   const win = new BrowserWindow({
@@ -242,7 +264,7 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle("seiton:select-project-root", async (): Promise<AppState> => {
+ipcMain.handle("seiton:add-project-root", async (): Promise<AppState> => {
   const result = await dialog.showOpenDialog({
     title: "Select project directory",
     properties: ["openDirectory"]
@@ -392,7 +414,12 @@ function buildPathHint(targetDir: string): string {
   return `Add ${targetDir} to PATH, for example: export PATH="${targetDir}:$PATH"`;
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  await createWindow();
+  stopWatchingLiveUpdates = watchLiveUpdates(() => {
+    scheduleLiveStateBroadcast();
+  });
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
@@ -402,4 +429,9 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     void createWindow();
   }
+});
+
+app.on("before-quit", () => {
+  if (liveUpdateTimer) clearTimeout(liveUpdateTimer);
+  stopWatchingLiveUpdates?.();
 });

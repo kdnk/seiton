@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { emitLiveUpdate } from "./live-updates";
 import { buildManagedName, type Branch, type CodexPane, type KittyTab, type SyncCommand } from "./model";
 
 const execFileAsync = promisify(execFile);
@@ -56,6 +57,13 @@ type HookEnvironment = {
   TMUX_PANE?: string;
   PWD?: string;
 };
+
+type HookNotifier = (payload: {
+  agent: string;
+  event: string;
+  paneId: string;
+  cwd?: string;
+}) => Promise<void>;
 
 export async function readSystemSnapshot(): Promise<SystemSnapshot> {
   return readSystemSnapshotForCwd(process.cwd());
@@ -288,7 +296,8 @@ export async function applyAgentHook(
   stdin: string,
   env: HookEnvironment,
   cwd = process.cwd(),
-  run: ExecFunction = exec
+  run: ExecFunction = exec,
+  notify: HookNotifier = emitLiveUpdate
 ): Promise<void> {
   const paneId = env.TMUX_PANE?.trim();
   if (!paneId) {
@@ -304,6 +313,12 @@ export async function applyAgentHook(
 
   if (agent === "codex") {
     await applyCodexHook(event, paneId, hookInput, cwd, run);
+    await notify({
+      agent,
+      event,
+      paneId,
+      ...(cwdValue ? { cwd: cwdValue } : {})
+    });
     return;
   }
 

@@ -23,8 +23,8 @@ export type SeitonSyncState = SeitonState & {
 const api = {
   refresh: () => ipcRenderer.invoke("seiton:refresh") as Promise<SeitonState>,
   sync: () => ipcRenderer.invoke("seiton:sync") as Promise<SeitonSyncState>,
-  selectProjectRoot: () =>
-    ipcRenderer.invoke("seiton:select-project-root") as Promise<SeitonState>,
+  addProjectRoot: () =>
+    ipcRenderer.invoke("seiton:add-project-root") as Promise<SeitonState>,
   selectRegisteredProject: (root: string) =>
     ipcRenderer.invoke("seiton:select-registered-project", root) as Promise<SeitonState>,
   focus: (projectRoot: string, branchKey: string, paneId?: string) =>
@@ -47,7 +47,16 @@ const api = {
   getCliCommandStatus: () =>
     ipcRenderer.invoke("seiton:get-cli-command-status") as Promise<CliCommandStatus>,
   installCliCommand: () =>
-    ipcRenderer.invoke("seiton:install-cli-command") as Promise<CliCommandStatus>
+    ipcRenderer.invoke("seiton:install-cli-command") as Promise<CliCommandStatus>,
+  onStateUpdated: (listener: (state: SeitonState) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: SeitonState) => {
+      listener(state);
+    };
+    ipcRenderer.on("seiton:state-updated", wrapped);
+    return () => {
+      ipcRenderer.removeListener("seiton:state-updated", wrapped);
+    };
+  }
 };
 
 contextBridge.exposeInMainWorld("seiton", api);

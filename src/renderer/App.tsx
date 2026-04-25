@@ -140,6 +140,13 @@ export function App() {
     void refreshCliStatus();
   }, []);
 
+  useEffect(() => {
+    if (!window.seiton?.onStateUpdated) return;
+    return window.seiton.onStateUpdated((next) => {
+      setState(next);
+    });
+  }, []);
+
   async function refresh() {
     if (!window.seiton) {
       setState(previewState);
@@ -174,11 +181,11 @@ export function App() {
     }
   }
 
-  async function selectProjectRoot() {
+  async function addProjectRoot() {
     if (!window.seiton) return;
     setBusy(true);
     try {
-      setState(await window.seiton.selectProjectRoot());
+      setState(await window.seiton.addProjectRoot());
     } finally {
       setBusy(false);
     }
@@ -288,7 +295,7 @@ export function App() {
           </div>
           <div className="actions">
             <button onClick={refresh} disabled={busy}>Reload</button>
-            <button onClick={selectProjectRoot} disabled={busy || !window.seiton}>
+            <button onClick={addProjectRoot} disabled={busy || !window.seiton}>
               Add root
             </button>
             <button className="primary" onClick={sync} disabled={busy || !window.seiton}>
