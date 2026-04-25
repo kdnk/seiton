@@ -11,23 +11,21 @@ import {
   ensureProject,
   planSync,
   reconcileRegistry,
+  removeProject,
   type Branch,
   type Context,
   type ProjectContexts,
   type Registry,
-  type RegistryProject,
   type SyncCommand
 } from "../src/core/model";
 import { loadRegistry, saveRegistry } from "../src/core/registry";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined;
-let currentProjectRoot = process.env.SEITON_PROJECT_ROOT ?? process.cwd();
 let stopWatchingLiveUpdates: (() => void) | undefined;
 let liveUpdateTimer: NodeJS.Timeout | undefined;
 
 type AppState = {
-  projectRoot: string;
   projectsWithContexts: ProjectContexts[];
   warnings: string[];
 };
@@ -40,6 +38,8 @@ type CliCommandStatus = {
   targetDirOnPath: boolean;
   pathHint?: string;
 };
+
+type ProjectWarningMap = Record<string, string[]>;
 
 function broadcastState(state: AppState): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -62,10 +62,10 @@ function scheduleLiveStateBroadcast(): void {
 
 async function createWindow(): Promise<void> {
   const win = new BrowserWindow({
-    width: 1180,
+    width: 760,
     height: 760,
-    minWidth: 920,
-    minHeight: 620,
+    minWidth: 420,
+    minHeight: 520,
     title: "seiton",
     backgroundColor: "#101314",
     webPreferences: {
@@ -84,78 +84,85 @@ async function createWindow(): Promise<void> {
 
 // Helper to avoid redundant logic in IPC handlers
 async function getFullState(): Promise<AppState> {
-  const appData = app.getPath("userData");
-  const projectRoot = currentProjectRoot;
-  const loadedRegistry = await loadRegistry(appData);
-  const registry = ensureProject({
-    registry: loadedRegistry,
-    root: projectRoot,
-    now: new Date().toISOString()
-  });
-  if (JSON.stringify(registry) !== JSON.stringify(loadedRegistry)) {
-    await saveRegistry(appData, registry);
-  }
-  const projectRoots = (registry.projects ?? []).map((p) => p.root);
+  const registry = await loadRegistry(app.getPath("userData"));
+  const projectRoots = orderedProjectRoots(registry);
   const snapshot = await readFullSystemSnapshot(projectRoots);
-  return {
-    projectRoot,
-    projectsWithContexts: detectAllContexts(registry, snapshot),
-    warnings: [
-      ...snapshot.globalWarnings,
-      ...Object.values(snapshot.projects).flatMap((p) => p.warnings)
-    ]
-  };
+  return buildAppState(registry, snapshot);
+}
+
+async function getReconciledFullState(): Promise<AppState> {
+  const appData = app.getPath("userData");
+  const loadedRegistry = await loadRegistry(appData);
+  const snapshot = await readFullSystemSnapshot(orderedProjectRoots(loadedRegistry));
+  const registry = await reconcileRegistryForAllProjects(appData, loadedRegistry, snapshot.projects);
+  const projectRoots = (registry.projects ?? []).map((p) => p.root);
+  const nextSnapshot =
+    projectRoots.length === orderedProjectRoots(loadedRegistry).length
+      ? snapshot
+      : await readFullSystemSnapshot(projectRoots);
+  return buildAppState(registry, nextSnapshot);
 }
 
 ipcMain.handle("seiton:refresh", async (): Promise<AppState> => {
-  const appData = app.getPath("userData");
-  const projectRoot = currentProjectRoot;
-  const loadedRegistry = await loadRegistry(appData);
-
-  const registryWithCurrent = ensureProject({
-    registry: loadedRegistry,
-    root: projectRoot,
-    now: new Date().toISOString()
-  });
-
-  const projectRoots = (registryWithCurrent.projects ?? []).map((p) => p.root);
-  const snapshot = await readFullSystemSnapshot(projectRoots);
-
-  const registry = await reconcileAndPersistRegistry(
-    appData,
-    registryWithCurrent,
-    snapshot.projects[projectRoot]?.branches ?? []
-  );
-
-  return {
-    projectRoot,
-    projectsWithContexts: detectAllContexts(registry, snapshot),
-    warnings: [
-      ...snapshot.globalWarnings,
-      ...Object.values(snapshot.projects).flatMap((p) => p.warnings)
-    ]
-  };
+  return await getReconciledFullState();
 });
 
 ipcMain.handle("seiton:sync", async (): Promise<AppState & { commands: SyncCommand[] }> => {
   const appData = app.getPath("userData");
-  const projectRoot = currentProjectRoot;
-  const loadedRegistry = await loadRegistry(appData);
+  let registry = await loadRegistry(appData);
+  const commands: SyncCommand[] = [];
+  const extraProjectWarnings: ProjectWarningMap = {};
+
+  for (const projectRoot of orderedProjectRoots(registry)) {
+    const result = await syncProjectRoot(projectRoot, registry);
+    registry = result.registry;
+    commands.push(...result.commands);
+    if (result.projectWarnings.length > 0) {
+      extraProjectWarnings[projectRoot] = result.projectWarnings;
+    }
+  }
+
+  const state = buildAppState(
+    registry,
+    await readFullSystemSnapshot(orderedProjectRoots(registry)),
+    extraProjectWarnings
+  );
+
+  return { ...state, commands };
+});
+
+ipcMain.handle("seiton:sync-project", async (_event, root: string): Promise<AppState & { commands: SyncCommand[] }> => {
+  const result = await syncProjectRoot(root);
+  const state = buildAppState(
+    result.registry,
+    await readFullSystemSnapshot(orderedProjectRoots(result.registry)),
+    { [root]: result.projectWarnings }
+  );
+  return { ...state, commands: result.commands };
+});
+
+async function syncProjectRoot(
+  projectRoot: string,
+  sourceRegistry?: Registry
+): Promise<{ registry: Registry; commands: SyncCommand[]; projectWarnings: string[] }> {
+  const appData = app.getPath("userData");
+  const loadedRegistry = sourceRegistry ?? await loadRegistry(appData);
   const snapshot = await readSystemSnapshotForCwd(projectRoot);
-  const registry = await reconcileAndPersistRegistry(appData, loadedRegistry, snapshot.branches);
+  const registry = await reconcileAndPersistRegistry(appData, loadedRegistry, projectRoot, snapshot.branches);
   const plan = planSync({ ...snapshot, registry, projectRoot });
-  const warnings = [...snapshot.warnings, ...plan.warnings];
+  const projectWarnings = [...snapshot.warnings, ...plan.warnings];
 
   for (const command of plan.commands) {
     try {
       await applySyncCommand(command, projectRoot);
     } catch (error) {
-      warnings.push(`${command.type} failed: ${error instanceof Error ? error.message : String(error)}`);
+      projectWarnings.push(`${command.type} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
+  let nextRegistry = registry;
   if (plan.registryUpdates.length > 0) {
-    const nextRegistry = {
+    nextRegistry = {
       ...registry,
       contexts: registry.contexts.map((context) => {
         const update = plan.registryUpdates.find((candidate) => candidate.id === context.id);
@@ -165,12 +172,8 @@ ipcMain.handle("seiton:sync", async (): Promise<AppState & { commands: SyncComma
     await saveRegistry(appData, nextRegistry);
   }
 
-  return {
-    ...(await getFullState()),
-    commands: plan.commands,
-    warnings: [...warnings, ...(await getFullState()).warnings]
-  };
-});
+  return { registry: nextRegistry, commands: plan.commands, projectWarnings };
+}
 
 ipcMain.handle(
   "seiton:focus",
@@ -270,13 +273,22 @@ ipcMain.handle("seiton:add-project-root", async (): Promise<AppState> => {
     properties: ["openDirectory"]
   });
   if (!result.canceled && result.filePaths[0]) {
-    currentProjectRoot = result.filePaths[0];
+    const appData = app.getPath("userData");
+    const registry = ensureProject({
+      registry: await loadRegistry(appData),
+      root: result.filePaths[0],
+      now: new Date().toISOString()
+    });
+    await saveRegistry(appData, registry);
   }
-  return await getFullState();
+  return await getReconciledFullState();
 });
 
-ipcMain.handle("seiton:select-registered-project", async (_event, root: string): Promise<AppState> => {
-  currentProjectRoot = root;
+ipcMain.handle("seiton:remove-project-root", async (_event, root: string): Promise<AppState> => {
+  const appData = app.getPath("userData");
+  const registry = await loadRegistry(appData);
+  const nextRegistry = removeProject({ registry, root });
+  await saveRegistry(appData, nextRegistry);
   return await getFullState();
 });
 
@@ -339,15 +351,16 @@ ipcMain.handle("seiton:install-cli-command", async (): Promise<CliCommandStatus>
 async function reconcileAndPersistRegistry(
   appData: string,
   registry: Registry,
+  projectRoot: string,
   branches: Branch[]
 ): Promise<Registry> {
   const registryWithProject = ensureProject({
     registry,
-    root: currentProjectRoot,
+    root: projectRoot,
     now: new Date().toISOString()
   });
   const next = reconcileRegistry({
-    projectRoot: currentProjectRoot,
+    projectRoot,
     branches,
     registry: registryWithProject,
     now: new Date().toISOString()
@@ -356,6 +369,46 @@ async function reconcileAndPersistRegistry(
     await saveRegistry(appData, next);
   }
   return next;
+}
+
+async function reconcileRegistryForAllProjects(
+  appData: string,
+  registry: Registry,
+  projects: Record<string, { branches: Branch[]; warnings: string[] }>
+): Promise<Registry> {
+  let nextRegistry = registry;
+  for (const projectRoot of orderedProjectRoots(registry)) {
+    nextRegistry = await reconcileAndPersistRegistry(
+      appData,
+      nextRegistry,
+      projectRoot,
+      projects[projectRoot]?.branches ?? []
+    );
+  }
+  return nextRegistry;
+}
+
+function orderedProjectRoots(registry: Registry): string[] {
+  return [...(registry.projects ?? [])]
+    .sort((a, b) => a.order - b.order)
+    .map((project) => project.root);
+}
+
+function buildAppState(
+  registry: Registry,
+  snapshot: Awaited<ReturnType<typeof readFullSystemSnapshot>>,
+  extraProjectWarnings: ProjectWarningMap = {}
+): AppState {
+  return {
+    projectsWithContexts: detectAllContexts(registry, snapshot).map((projectWithContexts) => ({
+      ...projectWithContexts,
+      warnings: [
+        ...(projectWithContexts.warnings ?? []),
+        ...(extraProjectWarnings[projectWithContexts.project.root] ?? [])
+      ]
+    })),
+    warnings: snapshot.globalWarnings
+  };
 }
 
 async function getCliCommandStatus(): Promise<CliCommandStatus> {

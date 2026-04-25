@@ -9,6 +9,7 @@ import {
   planKittyOrderMoves,
   planSync,
   reconcileRegistry,
+  removeProject,
   type Branch,
   type Registry
 } from "../src/core/model";
@@ -106,6 +107,65 @@ describe("project registry", () => {
         createdAt: "2026-04-24T11:00:00+09:00",
         updatedAt: "2026-04-24T11:00:00+09:00"
       }
+    ]);
+  });
+
+  it("removes a project and its scoped contexts", () => {
+    const next = removeProject({
+      registry: {
+        projects: [
+          {
+            root: "/repo/a",
+            name: "a",
+            projectKey: "%2Frepo%2Fa",
+            order: 10,
+            enabled: true
+          },
+          {
+            root: "/repo/b",
+            name: "b",
+            projectKey: "%2Frepo%2Fb",
+            order: 20,
+            enabled: true
+          }
+        ],
+        contexts: [
+          contextFixture({
+            id: "ctx-a",
+            projectRoot: "/repo/a",
+            branch: "feature/a",
+            branchKey: "feature%2Fa",
+            tmuxSession: "s_a_feature%2Fa",
+            kittyTabTitle: "s_a_feature%2Fa"
+          }),
+          contextFixture({
+            id: "ctx-b",
+            projectRoot: "/repo/b",
+            branch: "feature/b",
+            branchKey: "feature%2Fb",
+            tmuxSession: "s_b_feature%2Fb",
+            kittyTabTitle: "s_b_feature%2Fb",
+            order: 20
+          })
+        ]
+      },
+      root: "/repo/b"
+    });
+
+    expect(next.projects).toEqual([
+      {
+        root: "/repo/a",
+        name: "a",
+        projectKey: "%2Frepo%2Fa",
+        order: 10,
+        enabled: true
+      }
+    ]);
+    expect(next.contexts).toEqual([
+      expect.objectContaining({
+        id: "ctx-a",
+        projectRoot: "/repo/a"
+      })
     ]);
   });
 });

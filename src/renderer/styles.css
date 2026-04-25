@@ -1,7 +1,7 @@
 :root {
   color: #e7eaf0;
   background: #0c0f14;
-  font-family: Inter, "SF Pro Display", "Segoe UI", sans-serif;
+  font-family: "IBM Plex Sans", "SF Pro Display", "Segoe UI", sans-serif;
   --bg: #0c0f14;
   --panel: #12161d;
   --panel-2: #151a22;
@@ -64,57 +64,25 @@ button.primary {
 }
 
 .app-shell {
-  padding: 18px;
+  max-width: 720px;
+  padding: 10px;
 }
 
 .topbar {
-  height: 52px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.topbar-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.brand-mark {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
-  color: var(--soft);
-  font-size: 0.92rem;
-  font-weight: 700;
-}
-
-.brand-copy {
-  display: grid;
-  gap: 2px;
-}
-
-.brand-copy strong {
-  font-size: 0.98rem;
-  font-weight: 600;
-}
-
-.brand-copy span {
-  color: var(--muted);
-  font-size: 0.78rem;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
+  width: 100%;
 }
 
 .icon-button {
@@ -128,7 +96,7 @@ button.primary {
 
 .workspace-frame {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .panel {
@@ -159,21 +127,28 @@ button.primary {
 }
 
 .warnings-row {
-  display: flex;
+  display: grid;
   gap: 8px;
-  overflow-x: auto;
   padding: 8px 12px 9px;
 }
 
 .warnings-row p {
   margin: 0;
-  padding: 0.28rem 0.52rem;
+  padding: 0.5rem 0.65rem;
   border: 1px solid #403029;
-  border-radius: 999px;
+  border-radius: 10px;
   background: rgba(213, 168, 77, 0.1);
   color: #d7b26d;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.45;
   font-size: 0.76rem;
+  word-break: break-word;
+}
+
+.project-slot,
+.context-slot {
+  display: grid;
+  gap: 0;
 }
 
 .project-section {
@@ -184,10 +159,14 @@ button.primary {
   background: rgba(255, 255, 255, 0.01);
 }
 
+.project-warnings {
+  border-bottom: 1px solid var(--line);
+}
+
 .project-header-main {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -204,23 +183,23 @@ button.primary {
 
 .project-header-copy small {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--muted);
   font-family: "SF Mono", Menlo, monospace;
   font-size: 0.69rem;
+  line-height: 1.35;
+  word-break: break-word;
 }
 
-.project-actions button {
-  padding: 0.3rem 0.56rem;
-  font-size: 0.75rem;
+.project-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .rows {
-  padding: 4px;
+  padding: 4px 6px 6px;
   display: grid;
-  gap: 4px;
+  gap: 0;
 }
 
 .empty-message {
@@ -231,10 +210,10 @@ button.primary {
 
 .context-row {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
   gap: 7px;
-  align-items: center;
-  padding: 7px 8px;
+  align-items: flex-start;
+  padding: 7px 6px;
   border-radius: 10px;
   border: 1px solid transparent;
 }
@@ -286,7 +265,7 @@ button.primary {
 }
 
 .rename-input {
-  min-width: 280px;
+  min-width: min(240px, 100%);
   padding: 0.42rem 0.6rem;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -306,9 +285,9 @@ button.primary {
 
 .codex-pane-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 18rem) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
-  align-items: center;
+  align-items: flex-start;
   padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -343,13 +322,15 @@ button.primary {
 }
 
 .codex-pane-focus {
+  justify-self: start;
   padding: 0.3rem 0.56rem;
   font-size: 0.74rem;
 }
 
 .context-actions {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -396,19 +377,51 @@ button.primary {
   background: var(--red);
 }
 
-.project-section.drop-before,
-.context-row.drop-before {
-  box-shadow: inset 0 2px 0 var(--blue);
-}
-
-.project-section.drop-after,
-.context-row.drop-after {
-  box-shadow: inset 0 -2px 0 var(--blue);
-}
-
-.project-section.dragging,
-.context-row.dragging {
+.project-slot.dragging .project-section,
+.context-slot.dragging .context-row {
   opacity: 0.45;
+}
+
+.drop-gutter {
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: height 120ms ease, opacity 120ms ease;
+}
+
+.drop-gutter.visible {
+  height: 16px;
+  opacity: 1;
+}
+
+.drop-gutter-line {
+  position: relative;
+  display: block;
+  top: 7px;
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--blue);
+}
+
+.drop-gutter-line::before,
+.drop-gutter-line::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--blue);
+  transform: translateY(-50%);
+}
+
+.drop-gutter-line::before {
+  left: 0;
+}
+
+.drop-gutter-line::after {
+  right: 0;
 }
 
 .modal-backdrop {
@@ -487,8 +500,9 @@ button.primary {
 }
 
 .drag-preview-card {
-  min-width: 220px;
-  padding: 0.8rem 0.9rem;
+  min-width: 180px;
+  max-width: 240px;
+  padding: 0.65rem 0.75rem;
   border: 1px solid #364152;
   border-radius: 10px;
   background: #10151d;
@@ -509,11 +523,30 @@ button.primary {
 }
 
 @media (max-width: 1080px) {
-  .workspace-frame {
-    grid-template-columns: 1fr;
+  .app-shell {
+    max-width: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 8px;
   }
 
-  .sidebar {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .context-row {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+
+  .context-actions {
+    grid-column: 2;
+  }
+
+  .project-section header,
+  .panel header {
+    align-items: flex-start;
+  }
+
+  .project-header-copy h2 {
+    font-size: 0.85rem;
   }
 }

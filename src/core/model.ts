@@ -136,6 +136,11 @@ export type EnsureProjectInput = {
   now: string;
 };
 
+export type RemoveProjectInput = {
+  registry: Registry;
+  root: string;
+};
+
 export function buildBranchKey(branch: string): string {
   return strictEncode(branch);
 }
@@ -196,6 +201,15 @@ export function ensureProject(input: EnsureProjectInput): Registry {
   return { ...input.registry, projects };
 }
 
+export function removeProject(input: RemoveProjectInput): Registry {
+  const normalizedRoot = normalizeProjectRoot(input.root);
+  return {
+    ...input.registry,
+    projects: (input.registry.projects ?? []).filter((project) => project.root !== normalizedRoot),
+    contexts: input.registry.contexts.filter((context) => context.projectRoot !== normalizedRoot)
+  };
+}
+
 export function isManagedName(name: string): boolean {
   return name.startsWith(MANAGED_PREFIX) || name.startsWith(LEGACY_MANAGED_PREFIX);
 }
@@ -226,6 +240,7 @@ export function projectKeyFromManagedName(name: string): string | undefined {
 export type ProjectContexts = {
   project: RegistryProject;
   contexts: Context[];
+  warnings?: string[];
 };
 
 export function detectAllContexts(
@@ -243,7 +258,7 @@ export function detectAllContexts(
     .map((project) => {
       const projectSnapshot = snapshot.projects[project.root];
       if (!projectSnapshot) {
-        return { project, contexts: [] };
+        return { project, contexts: [], warnings: [] };
       }
       const contexts = detectContexts({
         projectRoot: project.root,
@@ -253,7 +268,7 @@ export function detectAllContexts(
         codexPanesBySession: snapshot.codexPanesBySession,
         registry
       });
-      return { project, contexts };
+      return { project, contexts, warnings: projectSnapshot.warnings };
     });
 }
 

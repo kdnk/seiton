@@ -2,7 +2,6 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { Context, ProjectContexts, RegistryProject, SyncCommand } from "../src/core/model";
 
 export type SeitonState = {
-  projectRoot: string;
   projectsWithContexts: ProjectContexts[];
   warnings: string[];
 };
@@ -23,10 +22,12 @@ export type SeitonSyncState = SeitonState & {
 const api = {
   refresh: () => ipcRenderer.invoke("seiton:refresh") as Promise<SeitonState>,
   sync: () => ipcRenderer.invoke("seiton:sync") as Promise<SeitonSyncState>,
+  syncProject: (root: string) =>
+    ipcRenderer.invoke("seiton:sync-project", root) as Promise<SeitonSyncState>,
   addProjectRoot: () =>
     ipcRenderer.invoke("seiton:add-project-root") as Promise<SeitonState>,
-  selectRegisteredProject: (root: string) =>
-    ipcRenderer.invoke("seiton:select-registered-project", root) as Promise<SeitonState>,
+  removeProjectRoot: (root: string) =>
+    ipcRenderer.invoke("seiton:remove-project-root", root) as Promise<SeitonState>,
   focus: (projectRoot: string, branchKey: string, paneId?: string) =>
     ipcRenderer.invoke("seiton:focus", { projectRoot, branchKey, paneId }) as Promise<void>,
   renameContext: (payload: {

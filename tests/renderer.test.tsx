@@ -14,17 +14,17 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText("sample workspace")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add root" })).toBeInTheDocument();
     });
 
     expect(screen.getByText("feat/codex-hook-state")).toBeInTheDocument();
     expect(screen.getAllByText("git-butler-practice").length).toBeGreaterThan(0);
     expect(screen.queryByRole("region", { name: "Warnings" })).not.toBeInTheDocument();
+    expect(screen.queryByText("sample workspace")).not.toBeInTheDocument();
   });
 
   it("shows an orphan remove button and calls the API", async () => {
     const refresh = vi.fn().mockResolvedValue({
-      projectRoot: "/repo/a",
       projectsWithContexts: [
         {
           project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
@@ -55,7 +55,6 @@ describe("App", () => {
       refresh,
       sync: vi.fn(),
       addProjectRoot: vi.fn(),
-      selectRegisteredProject: vi.fn(),
       focus: vi.fn(),
       renameContext: vi.fn(),
       reorderProjects: vi.fn(),
@@ -80,7 +79,6 @@ describe("App", () => {
 
   it("renames a context through the inline editor", async () => {
     const refresh = vi.fn().mockResolvedValue({
-      projectRoot: "/repo/a",
       projectsWithContexts: [
         {
           project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
@@ -112,7 +110,6 @@ describe("App", () => {
       refresh,
       sync: vi.fn(),
       addProjectRoot: vi.fn(),
-      selectRegisteredProject: vi.fn(),
       focus: vi.fn(),
       renameContext,
       reorderProjects: vi.fn(),
@@ -151,7 +148,6 @@ describe("App", () => {
 
   it("hides the warnings section when there are no warnings", async () => {
     const refresh = vi.fn().mockResolvedValue({
-      projectRoot: "/repo/a",
       projectsWithContexts: [],
       warnings: []
     });
@@ -159,7 +155,6 @@ describe("App", () => {
       refresh,
       sync: vi.fn(),
       addProjectRoot: vi.fn(),
-      selectRegisteredProject: vi.fn(),
       focus: vi.fn(),
       renameContext: vi.fn(),
       reorderProjects: vi.fn(),
@@ -178,9 +173,44 @@ describe("App", () => {
     expect(screen.queryByRole("region", { name: "Warnings" })).not.toBeInTheDocument();
   });
 
+  it("renders global warnings separately from project warnings", async () => {
+    const refresh = vi.fn().mockResolvedValue({
+      projectsWithContexts: [
+        {
+          project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+          contexts: [],
+          warnings: ["Only /repo/a needs attention."]
+        }
+      ],
+      warnings: ["tmux is unavailable."]
+    });
+    window.seiton = {
+      refresh,
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeProjectRoot: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
+    } as never;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(refresh).toHaveBeenCalled();
+    });
+
+    expect(screen.getByRole("region", { name: "Warnings" })).toBeInTheDocument();
+    expect(screen.getByText("tmux is unavailable.")).toBeInTheDocument();
+    expect(screen.getByText("Only /repo/a needs attention.")).toBeInTheDocument();
+  });
+
   it("shows codex panes and focuses a specific pane", async () => {
     const refresh = vi.fn().mockResolvedValue({
-      projectRoot: "/repo/a",
       projectsWithContexts: [
         {
           project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
@@ -214,7 +244,6 @@ describe("App", () => {
       refresh,
       sync: vi.fn(),
       addProjectRoot: vi.fn(),
-      selectRegisteredProject: vi.fn(),
       focus,
       renameContext: vi.fn(),
       reorderProjects: vi.fn(),
@@ -240,13 +269,11 @@ describe("App", () => {
 
   it("adds a project root through the additive IPC", async () => {
     const addProjectRoot = vi.fn().mockResolvedValue({
-      projectRoot: "",
       projectsWithContexts: [],
       warnings: []
     });
     window.seiton = {
       refresh: vi.fn().mockResolvedValue({
-        projectRoot: "",
         projectsWithContexts: [],
         warnings: []
       }),
@@ -270,10 +297,85 @@ describe("App", () => {
     });
   });
 
+  it("removes an added project root", async () => {
+    const removeProjectRoot = vi.fn().mockResolvedValue({
+      projectsWithContexts: [],
+      warnings: []
+    });
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [
+          {
+            project: { root: "/repo/b", name: "b", projectKey: "%2Frepo%2Fb", order: 20, enabled: true },
+            contexts: [],
+            warnings: []
+          }
+        ],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeProjectRoot,
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn(),
+      onStateUpdated: () => () => {}
+    } as never;
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove root b" }));
+
+    await waitFor(() => {
+      expect(removeProjectRoot).toHaveBeenCalledWith("/repo/b");
+    });
+  });
+
+  it("shows a restart warning when a new IPC handler is unavailable", async () => {
+    const removeProjectRoot = vi.fn().mockRejectedValue(
+      new Error("Error invoking remote method 'seiton:remove-project-root': Error: No handler registered for 'seiton:remove-project-root'")
+    );
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [
+          {
+            project: { root: "/repo/b", name: "b", projectKey: "%2Frepo%2Fb", order: 20, enabled: true },
+            contexts: [],
+            warnings: []
+          }
+        ],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      syncProject: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeProjectRoot,
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn(),
+      onStateUpdated: () => () => {}
+    } as never;
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove root b" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Restart Seiton to load the latest backend actions.")).toBeInTheDocument();
+    });
+  });
+
   it("applies pushed state updates from Electron", async () => {
     let listener: ((state: SeitonState) => void) | undefined;
     const refresh = vi.fn().mockResolvedValue({
-      projectRoot: "/repo/a",
       projectsWithContexts: [],
       warnings: []
     });
@@ -281,7 +383,6 @@ describe("App", () => {
       refresh,
       sync: vi.fn(),
       addProjectRoot: vi.fn(),
-      selectRegisteredProject: vi.fn(),
       focus: vi.fn(),
       renameContext: vi.fn(),
       reorderProjects: vi.fn(),
@@ -302,7 +403,6 @@ describe("App", () => {
     });
 
     listener?.({
-      projectRoot: "/repo/a",
       projectsWithContexts: [
         {
           project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
@@ -332,7 +432,6 @@ describe("App", () => {
 
   it("shows CLI install status and runs install from settings", async () => {
     const refresh = vi.fn().mockResolvedValue({
-      projectRoot: "/repo/a",
       projectsWithContexts: [],
       warnings: []
     });
@@ -364,7 +463,6 @@ describe("App", () => {
       refresh,
       sync: vi.fn(),
       addProjectRoot: vi.fn(),
-      selectRegisteredProject: vi.fn(),
       focus: vi.fn(),
       renameContext: vi.fn(),
       reorderProjects: vi.fn(),
@@ -391,4 +489,78 @@ describe("App", () => {
     expect(installCliCommand).toHaveBeenCalled();
   });
 });
+
+  it("does not render per-project sync buttons", async () => {
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [
+          {
+            project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+            contexts: [],
+            warnings: []
+          }
+        ],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      syncProject: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeProjectRoot: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn(),
+      onStateUpdated: () => () => {}
+    } as never;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("a")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: "Sync" })).not.toBeInTheDocument();
+  });
+
+  it("shows remove buttons for every registered project", async () => {
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [
+          {
+            project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+            contexts: [],
+            warnings: []
+          },
+          {
+            project: { root: "/repo/b", name: "b", projectKey: "%2Frepo%2Fb", order: 20, enabled: true },
+            contexts: [],
+            warnings: []
+          }
+        ],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      syncProject: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeProjectRoot: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn(),
+      onStateUpdated: () => () => {}
+    } as never;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Remove root a" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove root b" })).toBeInTheDocument();
+    });
+  });
 });

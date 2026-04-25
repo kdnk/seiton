@@ -7,7 +7,6 @@ import type { CodexPane, Context, ProjectContexts } from "../core/model";
 import "./styles.css";
 
 type ViewState = {
-  projectRoot: string;
   projectsWithContexts: ProjectContexts[];
   warnings: string[];
 };
@@ -29,7 +28,6 @@ type ContextDragItem = {
 };
 
 const previewState: ViewState = {
-  projectRoot: "/Users/kodai/workspaces/github.com/kdnk/seiton",
   projectsWithContexts: [
     {
       project: {
@@ -126,7 +124,6 @@ const previewCliStatus: CliCommandStatus = {
 export function App() {
   const previewMode = !window.seiton;
   const [state, setState] = useState<ViewState>({
-    projectRoot: "",
     projectsWithContexts: [],
     warnings: []
   });
@@ -134,6 +131,20 @@ export function App() {
   const [lastSync, setLastSync] = useState<string>("not synced");
   const [cliStatus, setCliStatus] = useState<CliCommandStatus | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  function pushGlobalWarning(warning: string) {
+    setState((current) => ({
+      ...current,
+      warnings: current.warnings.includes(warning) ? current.warnings : [warning, ...current.warnings]
+    }));
+  }
+
+  function handleMissingHandler(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    if (!error.message.includes("No handler registered")) return false;
+    pushGlobalWarning("Restart Seiton to load the latest backend actions.");
+    return true;
+  }
 
   useEffect(() => {
     void refresh();
@@ -235,16 +246,13 @@ export function App() {
     }
   }
 
-  async function syncProject(root: string) {
-    if (!window.seiton) return;
+  async function removeProjectRoot(root: string) {
+    if (!window.seiton?.removeProjectRoot) return;
     setBusy(true);
     try {
-      await window.seiton.selectRegisteredProject(root);
-      const next = await window.seiton.sync();
-      setState(next);
-      const pc = next.projectsWithContexts.find((project) => project.project.root === root);
-      const name = pc?.project.name ?? root;
-      setLastSync(`${new Date().toLocaleTimeString()} (${name}) / ${next.commands.length} cmds`);
+      setState(await window.seiton.removeProjectRoot(root));
+    } catch (error) {
+      if (!handleMissingHandler(error)) throw error;
     } finally {
       setBusy(false);
     }
@@ -286,13 +294,6 @@ export function App() {
         <DragPreviewLayer />
 
         <header className="topbar">
-          <div className="topbar-brand">
-            <div className="brand-mark">S</div>
-            <div className="brand-copy">
-              <strong>seiton</strong>
-              <span>{previewMode ? "sample workspace" : "workspace control"}</span>
-            </div>
-          </div>
           <div className="actions">
             <button onClick={refresh} disabled={busy}>Reload</button>
             <button onClick={addProjectRoot} disabled={busy || !window.seiton}>
@@ -341,7 +342,7 @@ export function App() {
                 onFocusPane={focusPane}
                 onRename={renameContext}
                 onRemoveOrphan={removeOrphan}
-                onSync={() => syncProject(pc.project.root)}
+                onRemoveProjectRoot={removeProjectRoot}
               />
             ))}
           </div>
@@ -417,7 +418,7 @@ function ProjectSection({
   onFocusPane,
   onRename,
   onRemoveOrphan,
-  onSync
+  onRemoveProjectRoot
 }: {
   projectWithContexts: ProjectContexts;
   projectIndex: number;
@@ -428,10 +429,11 @@ function ProjectSection({
   onFocusPane: (context: Context, pane: CodexPane) => void;
   onRename: (context: Context, newBranch: string) => void;
   onRemoveOrphan: (context: Context) => void;
-  onSync: () => void;
+  onRemoveProjectRoot: (root: string) => void;
 }) {
   const { project, contexts } = projectWithContexts;
-  const sectionRef = useRef<HTMLElement | null>(null);
+  const warnings = projectWithContexts.warnings ?? [];
+  const sectionRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLButtonElement | null>(null);
   const [dropEdge, setDropEdge] = useState<DropEdge>(null);
 
@@ -483,54 +485,73 @@ function ProjectSection({
   }, [isOver]);
 
   return (
-    <section
+    <div
       ref={sectionRef}
       className={classNames(
-        "panel",
-        "project-section",
-        isDragging ? "dragging" : "",
-        canDrop && isOver && dropEdge ? `drop-${dropEdge}` : ""
+        "project-slot",
+        isDragging ? "dragging" : ""
       )}
     >
-      <header>
-        <div className="project-header-main">
-          <button
-            ref={handleRef}
-            className="drag-handle"
-            aria-label={`Drag project ${project.name}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            :::
-          </button>
-          <div className="project-header-copy">
-            <h2>{project.name}</h2>
-            <small>{project.root}</small>
+      <DropGutter visible={canDrop && isOver && dropEdge === "before"} />
+      <section className="panel project-section">
+        <header>
+          <div className="project-header-main">
+            <button
+              ref={handleRef}
+              className="drag-handle"
+              aria-label={`Drag project ${project.name}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              :::
+            </button>
+            <div className="project-header-copy">
+              <h2>{project.name}</h2>
+              <small>{project.root}</small>
+            </div>
           </div>
-        </div>
-        <div className="project-actions">
-          <button onClick={onSync}>Sync</button>
-        </div>
-      </header>
-      <div className="rows">
-        {contexts.length === 0 ? (
-          <p className="empty-message">No managed contexts in this project.</p>
+          <div className="project-actions">
+            <button
+              className="danger-icon"
+              aria-label={`Remove root ${project.name}`}
+              disabled={busy}
+              onClick={() => onRemoveProjectRoot(project.root)}
+            >
+              ×
+            </button>
+          </div>
+        </header>
+        {warnings.length > 0 ? (
+          <section className="project-warnings" aria-label={`Warnings for ${project.name}`}>
+            <div className="warnings-row">
+              {warnings.map((warning, i) => (
+                <p key={i}>{warning}</p>
+              ))}
+            </div>
+          </section>
         ) : (
-          contexts.map((context, index) => (
-            <ContextRow
-              key={context.id}
-              context={context}
-              index={index}
-              busy={busy}
-              onFocus={() => onFocus(context)}
-              onFocusPane={(pane) => onFocusPane(context, pane)}
-              onRename={(newBranch) => onRename(context, newBranch)}
-              onRemoveOrphan={() => onRemoveOrphan(context)}
-              onMove={(from, to) => onMoveContext(project.root, from, to)}
-            />
-          ))
+          <div className="rows">
+            {contexts.length === 0 ? (
+              <p className="empty-message">No managed contexts in this project.</p>
+            ) : (
+              contexts.map((context, index) => (
+                <ContextRow
+                  key={context.id}
+                  context={context}
+                  index={index}
+                  busy={busy}
+                  onFocus={() => onFocus(context)}
+                  onFocusPane={(pane) => onFocusPane(context, pane)}
+                  onRename={(newBranch) => onRename(context, newBranch)}
+                  onRemoveOrphan={() => onRemoveOrphan(context)}
+                  onMove={(from, to) => onMoveContext(project.root, from, to)}
+                />
+              ))
+            )}
+          </div>
         )}
-      </div>
-    </section>
+      </section>
+      <DropGutter visible={canDrop && isOver && dropEdge === "after"} />
+    </div>
   );
 }
 
@@ -630,105 +651,116 @@ function ContextRow({
     <div
       ref={rowRef}
       className={classNames(
-        "context-row",
-        isDragging ? "dragging" : "",
-        canDrop && isOver && dropEdge ? `drop-${dropEdge}` : ""
+        "context-slot",
+        isDragging ? "dragging" : ""
       )}
     >
-      <button
-        ref={handleRef}
-        className="drag-handle context-handle"
-        aria-label={`Drag context ${context.branch}`}
-        disabled={isEditing}
-      >
-        ::
-      </button>
-      <div className="context-main">
-        <div className="context-head">
-          <span className={`status ${context.status}`}>{context.status}</span>
-          {isEditing ? (
-            <input
-              className="rename-input"
-              aria-label={`Rename ${context.branch}`}
-              autoFocus
-              value={draftBranch}
-              onChange={(event) => setDraftBranch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") submitRename();
-                if (event.key === "Escape") {
-                  setDraftBranch(context.branch);
-                  setIsEditing(false);
-                }
-              }}
-              onBlur={() => {
-                setDraftBranch(context.branch);
-                setIsEditing(false);
-              }}
-            />
-          ) : (
-            <strong>{context.branch}</strong>
-          )}
-        </div>
-        <small>{context.tmuxSession}</small>
-        {context.codexPanes.length > 0 ? (
-          <div className="codex-pane-list">
-            {context.codexPanes.map((pane) => (
-              <div key={pane.paneId} className="codex-pane-row">
-                <div className="codex-pane-main">
-                  <span className={`status codex-status ${pane.status}`}>{pane.status}</span>
-                  <strong>{pane.command}</strong>
-                  <small>{pane.paneId}</small>
-                </div>
-                <p className="codex-pane-line" title={pane.lastLine}>
-                  {pane.lastLine || "No recent output"}
-                </p>
-                <button
-                  className="codex-pane-focus"
-                  disabled={busy}
-                  onClick={() => onFocusPane(pane)}
-                  aria-label={`Focus pane ${pane.paneId}`}
-                >
-                  Open
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </div>
-      <div className="context-actions">
-        <button onClick={onFocus}>Focus</button>
-        {context.status !== "orphan_tmux" ? (
-          isEditing ? (
-            <>
-              <button disabled={busy} onMouseDown={(event) => event.preventDefault()} onClick={submitRename}>
-                Save
-              </button>
-              <button
-                disabled={busy}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
+      <DropGutter visible={canDrop && isOver && dropEdge === "before"} />
+      <div className="context-row">
+        <button
+          ref={handleRef}
+          className="drag-handle context-handle"
+          aria-label={`Drag context ${context.branch}`}
+          disabled={isEditing}
+        >
+          ::
+        </button>
+        <div className="context-main">
+          <div className="context-head">
+            <span className={`status ${context.status}`}>{context.status}</span>
+            {isEditing ? (
+              <input
+                className="rename-input"
+                aria-label={`Rename ${context.branch}`}
+                autoFocus
+                value={draftBranch}
+                onChange={(event) => setDraftBranch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") submitRename();
+                  if (event.key === "Escape") {
+                    setDraftBranch(context.branch);
+                    setIsEditing(false);
+                  }
+                }}
+                onBlur={() => {
                   setDraftBranch(context.branch);
                   setIsEditing(false);
                 }}
-              >
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button disabled={busy} onClick={() => setIsEditing(true)}>Rename</button>
-          )
-        ) : null}
-        {context.status === "orphan_tmux" ? (
-          <button
-            className="danger-icon"
-            aria-label={`Remove orphan ${context.branch}`}
-            disabled={busy}
-            onClick={onRemoveOrphan}
-          >
-            ×
-          </button>
-        ) : null}
+              />
+            ) : (
+              <strong>{context.branch}</strong>
+            )}
+          </div>
+          <small>{context.tmuxSession}</small>
+          {context.codexPanes.length > 0 ? (
+            <div className="codex-pane-list">
+              {context.codexPanes.map((pane) => (
+                <div key={pane.paneId} className="codex-pane-row">
+                  <div className="codex-pane-main">
+                    <span className={`status codex-status ${pane.status}`}>{pane.status}</span>
+                    <strong>{pane.command}</strong>
+                    <small>{pane.paneId}</small>
+                  </div>
+                  <p className="codex-pane-line" title={pane.lastLine}>
+                    {pane.lastLine || "No recent output"}
+                  </p>
+                  <button
+                    className="codex-pane-focus"
+                    disabled={busy}
+                    onClick={() => onFocusPane(pane)}
+                    aria-label={`Focus pane ${pane.paneId}`}
+                  >
+                    Open
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="context-actions">
+          <button onClick={onFocus}>Focus</button>
+          {context.status !== "orphan_tmux" ? (
+            isEditing ? (
+              <>
+                <button disabled={busy} onMouseDown={(event) => event.preventDefault()} onClick={submitRename}>
+                  Save
+                </button>
+                <button
+                  disabled={busy}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setDraftBranch(context.branch);
+                    setIsEditing(false);
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button disabled={busy} onClick={() => setIsEditing(true)}>Rename</button>
+            )
+          ) : null}
+          {context.status === "orphan_tmux" ? (
+            <button
+              className="danger-icon"
+              aria-label={`Remove orphan ${context.branch}`}
+              disabled={busy}
+              onClick={onRemoveOrphan}
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
       </div>
+      <DropGutter visible={canDrop && isOver && dropEdge === "after"} />
+    </div>
+  );
+}
+
+function DropGutter({ visible }: { visible: boolean }) {
+  return (
+    <div className={classNames("drop-gutter", visible ? "visible" : "")} aria-hidden="true">
+      <span className="drop-gutter-line" />
     </div>
   );
 }
