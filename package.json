@@ -1,6 +1,6 @@
 {
   "name": "seiton",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Seiton - Workspace Manager for GitButler, tmux, and Kitty",
   "author": "Kodai Nakamura",
   "private": true,
