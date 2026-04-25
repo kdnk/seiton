@@ -7,6 +7,15 @@ export type SeitonState = {
   warnings: string[];
 };
 
+export type CliCommandStatus = {
+  sourcePath: string;
+  targetPath: string;
+  installed: boolean;
+  availableOnPath: boolean;
+  targetDirOnPath: boolean;
+  pathHint?: string;
+};
+
 export type SeitonSyncState = SeitonState & {
   commands: SyncCommand[];
 };
@@ -34,7 +43,11 @@ const api = {
   reorderProjects: (from: number, to: number) =>
     ipcRenderer.invoke("seiton:reorder-projects", { from, to }) as Promise<SeitonState>,
   reorderContexts: (projectRoot: string, from: number, to: number) =>
-    ipcRenderer.invoke("seiton:reorder-contexts", { projectRoot, from, to }) as Promise<SeitonState>
+    ipcRenderer.invoke("seiton:reorder-contexts", { projectRoot, from, to }) as Promise<SeitonState>,
+  getCliCommandStatus: () =>
+    ipcRenderer.invoke("seiton:get-cli-command-status") as Promise<CliCommandStatus>,
+  installCliCommand: () =>
+    ipcRenderer.invoke("seiton:install-cli-command") as Promise<CliCommandStatus>
 };
 
 contextBridge.exposeInMainWorld("seiton", api);

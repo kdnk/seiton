@@ -52,7 +52,7 @@ export type ContextStatus =
   | "rename_conflict"
   | "error";
 
-export type CodexPaneStatus = "running" | "idle";
+export type CodexPaneStatus = "running" | "idle" | "waiting" | "error";
 
 export type CodexPane = {
   paneId: string;

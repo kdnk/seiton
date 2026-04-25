@@ -9,16 +9,16 @@ describe("App", () => {
     document.body.innerHTML = "";
   });
 
-  it("does not render demo data when preload is unavailable", async () => {
+  it("renders the web preview when preload is unavailable", async () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText("seiton")).toBeInTheDocument();
+      expect(screen.getByText("sample workspace")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Electron preload is unavailable. Open the app in Electron to add directories and manage contexts.")).toBeInTheDocument();
-    expect(screen.queryByText("feature/notify-ui")).not.toBeInTheDocument();
-    expect(screen.queryByText("feature/reorder-tabs")).not.toBeInTheDocument();
+    expect(screen.getByText("feat/codex-hook-state")).toBeInTheDocument();
+    expect(screen.getAllByText("git-butler-practice").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("region", { name: "Warnings" })).not.toBeInTheDocument();
   });
 
   it("shows an orphan remove button and calls the API", async () => {
@@ -59,7 +59,9 @@ describe("App", () => {
       renameContext: vi.fn(),
       reorderProjects: vi.fn(),
       reorderContexts: vi.fn(),
-      removeOrphan
+      removeOrphan,
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
     } as never;
 
     render(<App />);
@@ -114,7 +116,9 @@ describe("App", () => {
       renameContext,
       reorderProjects: vi.fn(),
       reorderContexts: vi.fn(),
-      removeOrphan: vi.fn()
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
     } as never;
 
     render(<App />);
@@ -159,7 +163,9 @@ describe("App", () => {
       renameContext: vi.fn(),
       reorderProjects: vi.fn(),
       reorderContexts: vi.fn(),
-      removeOrphan: vi.fn()
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
     } as never;
 
     render(<App />);
@@ -212,7 +218,9 @@ describe("App", () => {
       renameContext: vi.fn(),
       reorderProjects: vi.fn(),
       reorderContexts: vi.fn(),
-      removeOrphan: vi.fn()
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
     } as never;
 
     render(<App />);
@@ -226,6 +234,68 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(focus).toHaveBeenCalledWith("/repo/a", "feature%2Fnotify-ui", "%12");
+    });
+  });
+
+  it("shows CLI install status and runs install from settings", async () => {
+    const refresh = vi.fn().mockResolvedValue({
+      projectRoot: "/repo/a",
+      projectsWithContexts: [],
+      warnings: []
+    });
+    const getCliCommandStatus = vi.fn()
+      .mockResolvedValueOnce({
+        sourcePath: "/repo/a/dist-electron/cli.js",
+        targetPath: "/Users/kodai/.local/bin/seiton",
+        installed: false,
+        availableOnPath: false,
+        targetDirOnPath: false,
+        pathHint: 'Add /Users/kodai/.local/bin to PATH, for example: export PATH="/Users/kodai/.local/bin:$PATH"'
+      })
+      .mockResolvedValueOnce({
+        sourcePath: "/repo/a/dist-electron/cli.js",
+        targetPath: "/Users/kodai/.local/bin/seiton",
+        installed: true,
+        availableOnPath: true,
+        targetDirOnPath: true
+      });
+    const installCliCommand = vi.fn().mockResolvedValue({
+      sourcePath: "/repo/a/dist-electron/cli.js",
+      targetPath: "/Users/kodai/.local/bin/seiton",
+      installed: true,
+      availableOnPath: true,
+      targetDirOnPath: true
+    });
+
+    window.seiton = {
+      refresh,
+      sync: vi.fn(),
+      selectProjectRoot: vi.fn(),
+      selectRegisteredProject: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus,
+      installCliCommand
+    } as never;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Open settings" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    });
+    expect(screen.getByText("/Users/kodai/.local/bin/seiton")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Install Command" }));
+
+    await waitFor(() => {
+      expect(installCliCommand).toHaveBeenCalled();
     });
   });
 });

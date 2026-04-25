@@ -45,6 +45,18 @@ export type RenameManagedInput = {
   oldKittyTabTitle: string;
 };
 
+type PaneCandidate = {
+  sessionName: string;
+  paneId: string;
+  currentCommand: string;
+  startCommand: string;
+};
+
+type HookEnvironment = {
+  TMUX_PANE?: string;
+  PWD?: string;
+};
+
 export async function readSystemSnapshot(): Promise<SystemSnapshot> {
   return readSystemSnapshotForCwd(process.cwd());
 }
@@ -270,6 +282,34 @@ export async function renameManagedContext(
   }
 }
 
+export async function applyAgentHook(
+  agent: string,
+  event: string,
+  stdin: string,
+  env: HookEnvironment,
+  cwd = process.cwd(),
+  run: ExecFunction = exec
+): Promise<void> {
+  const paneId = env.TMUX_PANE?.trim();
+  if (!paneId) {
+    throw new Error("TMUX_PANE is required");
+  }
+
+  const payload = parseHookPayload(stdin);
+  const cwdValue = readPayloadString(payload, ["cwd", "workspace", "directory"]) ?? env.PWD?.trim();
+  const prompt = readPayloadString(payload, ["prompt", "input", "message", "text"]);
+  const hookInput: { cwd?: string; prompt?: string } = {};
+  if (cwdValue) hookInput.cwd = cwdValue;
+  if (prompt) hookInput.prompt = prompt;
+
+  if (agent === "codex") {
+    await applyCodexHook(event, paneId, hookInput, cwd, run);
+    return;
+  }
+
+  throw new Error(`Unsupported agent: ${agent}`);
+}
+
 async function readBranches(cwd: string): Promise<CommandResult<Branch[]>> {
   return readBranchesForProject(cwd, exec);
 }
@@ -344,7 +384,9 @@ async function readCodexPanes(cwd: string): Promise<CommandResult<Record<string,
       "-F",
       "#{session_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_start_command}"
     ], cwd);
-    return { ok: true, value: await parseTmuxCodexPanes(stdout, cwd, exec) };
+    const optionBacked = await readCodexPanesFromTmuxOptions(stdout, cwd, exec);
+    const fallback = await parseTmuxCodexPanes(stdout, cwd, exec);
+    return { ok: true, value: mergeCodexPaneMaps(optionBacked, fallback) };
   } catch (error) {
     return {
       ok: false,
@@ -399,19 +441,35 @@ export function parseKittyTabs(stdout: string): KittyTab[] {
   );
 }
 
+export async function readCodexPanesFromTmuxOptions(
+  stdout: string,
+  cwd: string,
+  run: ExecFunction
+): Promise<Record<string, CodexPane[]>> {
+  const paneCandidates = parsePaneCandidates(stdout);
+  const result: Record<string, CodexPane[]> = {};
+
+  for (const pane of paneCandidates) {
+    const entry = await readCodexPaneFromTmuxOptions(pane, cwd, run);
+    if (!entry) continue;
+    const existing = result[pane.sessionName] ?? [];
+    existing.push(entry);
+    result[pane.sessionName] = existing;
+  }
+
+  for (const sessionName of Object.keys(result)) {
+    result[sessionName] = result[sessionName]!.sort((a, b) => a.paneId.localeCompare(b.paneId));
+  }
+
+  return result;
+}
+
 export async function parseTmuxCodexPanes(
   stdout: string,
   cwd: string,
   run: ExecFunction
 ): Promise<Record<string, CodexPane[]>> {
-  const paneCandidates = stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [sessionName = "", paneId = "", currentCommand = "", startCommand = ""] = line.split("\t");
-      return { sessionName, paneId, currentCommand, startCommand };
-    });
+  const paneCandidates = parsePaneCandidates(stdout);
 
   const result: Record<string, CodexPane[]> = {};
   for (const pane of paneCandidates) {
@@ -438,6 +496,35 @@ export async function parseTmuxCodexPanes(
   }
 
   return result;
+}
+
+function parsePaneCandidates(stdout: string): PaneCandidate[] {
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [sessionName = "", paneId = "", currentCommand = "", startCommand = ""] = line.split("\t");
+      return { sessionName, paneId, currentCommand, startCommand };
+    });
+}
+
+function mergeCodexPaneMaps(
+  primary: Record<string, CodexPane[]>,
+  secondary: Record<string, CodexPane[]>
+): Record<string, CodexPane[]> {
+  const merged: Record<string, CodexPane[]> = {};
+  const sessionNames = new Set([...Object.keys(primary), ...Object.keys(secondary)]);
+
+  for (const sessionName of sessionNames) {
+    const byPaneId = new Map<string, CodexPane>();
+    for (const pane of secondary[sessionName] ?? []) byPaneId.set(pane.paneId, pane);
+    for (const pane of primary[sessionName] ?? []) byPaneId.set(pane.paneId, pane);
+    const values = [...byPaneId.values()].sort((a, b) => a.paneId.localeCompare(b.paneId));
+    if (values.length > 0) merged[sessionName] = values;
+  }
+
+  return merged;
 }
 
 async function exec(
@@ -483,6 +570,47 @@ async function readPaneWindowId(
   }
 }
 
+async function readCodexPaneFromTmuxOptions(
+  pane: PaneCandidate,
+  cwd: string,
+  run: ExecFunction
+): Promise<CodexPane | undefined> {
+  const agent = await readPaneOption(pane.paneId, "@seiton_agent", cwd, run);
+  if (agent !== "codex") return undefined;
+  if (!isCodexRuntimeActive(pane.currentCommand, pane.startCommand)) {
+    return undefined;
+  }
+
+  const [status, prompt] = await Promise.all([
+    readPaneOption(pane.paneId, "@seiton_status", cwd, run),
+    readPaneOption(pane.paneId, "@seiton_prompt", cwd, run)
+  ]);
+
+  const fallbackLine = prompt ? "" : (await readPaneSnapshot(pane.paneId, cwd, run)).lastLine;
+
+  return {
+    paneId: pane.paneId,
+    command: "codex",
+    lastLine: prompt || fallbackLine,
+    status: normalizeCodexPaneStatus(status)
+  };
+}
+
+async function readPaneOption(
+  paneId: string,
+  option: string,
+  cwd: string,
+  run: ExecFunction
+): Promise<string | undefined> {
+  try {
+    const { stdout } = await run("tmux", ["show-options", "-p", "-v", "-t", paneId, option], cwd);
+    const value = stdout.trim();
+    return value || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function isCodexPane(currentCommand: string, startCommand: string, paneText: string): boolean {
   const haystack = `${currentCommand} ${startCommand}`.toLowerCase();
   if (haystack.includes("codex")) return true;
@@ -496,12 +624,15 @@ function isCodexPane(currentCommand: string, startCommand: string, paneText: str
   );
 }
 
-function isLiveCodexPane(currentCommand: string, startCommand: string, paneText: string): boolean {
+function isCodexRuntimeActive(currentCommand: string, startCommand: string): boolean {
   const haystack = `${currentCommand} ${startCommand}`.toLowerCase();
   if (haystack.includes("codex")) return true;
-
   const current = currentCommand.trim().toLowerCase();
-  if (current !== "node") {
+  return current === "node";
+}
+
+function isLiveCodexPane(currentCommand: string, startCommand: string, paneText: string): boolean {
+  if (!isCodexRuntimeActive(currentCommand, startCommand)) {
     return false;
   }
 
@@ -535,6 +666,133 @@ function inferCodexPaneStatus(paneText: string): CodexPane["status"] {
   }
 
   return "running";
+}
+
+function normalizeCodexPaneStatus(status: string | undefined): CodexPane["status"] {
+  if (status === "idle" || status === "running" || status === "waiting" || status === "error") {
+    return status;
+  }
+  return "idle";
+}
+
+async function applyCodexHook(
+  event: string,
+  paneId: string,
+  input: { cwd?: string; prompt?: string },
+  cwd: string,
+  run: ExecFunction
+): Promise<void> {
+  switch (event) {
+    case "session-start":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "codex",
+          "@seiton_status": "idle",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd
+        },
+        cwd,
+        run
+      );
+      await unsetPaneOptions(paneId, ["@seiton_attention", "@seiton_wait_reason", "@seiton_started_at"], cwd, run);
+      return;
+    case "user-prompt-submit":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "codex",
+          "@seiton_status": "running",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd,
+          "@seiton_started_at": new Date().toISOString()
+        },
+        cwd,
+        run
+      );
+      await unsetPaneOptions(paneId, ["@seiton_attention", "@seiton_wait_reason"], cwd, run);
+      return;
+    case "stop":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "codex",
+          "@seiton_status": "idle",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd
+        },
+        cwd,
+        run
+      );
+      await unsetPaneOptions(paneId, ["@seiton_attention", "@seiton_wait_reason", "@seiton_started_at"], cwd, run);
+      return;
+    default:
+      throw new Error(`Unsupported codex event: ${event}`);
+  }
+}
+
+async function writePaneOptions(
+  paneId: string,
+  values: Record<string, string | undefined>,
+  cwd: string,
+  run: ExecFunction
+): Promise<void> {
+  for (const [option, rawValue] of Object.entries(values)) {
+    const value = sanitizeOptionValue(rawValue);
+    if (!value) continue;
+    await run("tmux", ["set-option", "-p", "-t", paneId, option, value], cwd);
+  }
+}
+
+async function unsetPaneOptions(
+  paneId: string,
+  options: string[],
+  cwd: string,
+  run: ExecFunction
+): Promise<void> {
+  for (const option of options) {
+    try {
+      await run("tmux", ["set-option", "-p", "-u", "-t", paneId, option], cwd);
+    } catch {
+      // ignore missing options
+    }
+  }
+}
+
+function sanitizeOptionValue(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized || undefined;
+}
+
+function parseHookPayload(stdin: string): unknown {
+  const trimmed = stdin.trim();
+  if (!trimmed) return {};
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return {};
+  }
+}
+
+function readPayloadString(payload: unknown, keys: string[]): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const queue: unknown[] = [payload];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object") continue;
+    for (const [key, value] of Object.entries(current)) {
+      if (keys.includes(key) && typeof value === "string" && value.trim()) {
+        return value;
+      }
+      if (value && typeof value === "object") {
+        queue.push(value);
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function shouldSetupGitButler(error: unknown): boolean {

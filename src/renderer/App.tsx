@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DndProvider, useDrag, useDragLayer, useDrop } from "react-dnd";
 import { getEmptyImage, HTML5Backend } from "react-dnd-html5-backend";
+import type { CliCommandStatus } from "../../electron/preload";
 import type { CodexPane, Context, ProjectContexts } from "../core/model";
 import "./styles.css";
 
@@ -27,15 +28,103 @@ type ContextDragItem = {
   status: Context["status"];
 };
 
-const preloadUnavailableState: ViewState = {
-  projectRoot: "",
-  projectsWithContexts: [],
-  warnings: [
-    "Electron preload is unavailable. Open the app in Electron to add directories and manage contexts."
-  ]
+const previewState: ViewState = {
+  projectRoot: "/Users/kodai/workspaces/github.com/kdnk/seiton",
+  projectsWithContexts: [
+    {
+      project: {
+        root: "/Users/kodai/workspaces/github.com/kdnk/seiton",
+        name: "seiton",
+        projectKey: "%2FUsers%2Fkodai%2Fworkspaces%2Fgithub.com%2Fkdnk%2Fseiton",
+        order: 10,
+        enabled: true
+      },
+      contexts: [
+        {
+          id: "ctx-1",
+          type: "managed",
+          projectRoot: "/Users/kodai/workspaces/github.com/kdnk/seiton",
+          branch: "feat/codex-hook-state",
+          branchKey: "feat%2Fcodex-hook-state",
+          tmuxSession: "s_seiton_feat%2Fcodex-hook-state",
+          kittyTabTitle: "s_seiton_feat%2Fcodex-hook-state",
+          codexPanes: [
+            {
+              paneId: "%12",
+              command: "codex",
+              lastLine: "Reviewing hook state adapter",
+              status: "running"
+            }
+          ],
+          order: 10,
+          status: "ready"
+        },
+        {
+          id: "ctx-2",
+          type: "managed",
+          projectRoot: "/Users/kodai/workspaces/github.com/kdnk/seiton",
+          branch: "chore/readme-refresh",
+          branchKey: "chore%2Freadme-refresh",
+          tmuxSession: "s_seiton_chore%2Freadme-refresh",
+          kittyTabTitle: "s_seiton_chore%2Freadme-refresh",
+          codexPanes: [
+            {
+              paneId: "%18",
+              command: "codex",
+              lastLine: "Update CLI install docs",
+              status: "idle"
+            }
+          ],
+          order: 20,
+          status: "missing_kitty"
+        }
+      ]
+    },
+    {
+      project: {
+        root: "/Users/kodai/workspaces/github.com/kdnk/git-butler-practice",
+        name: "git-butler-practice",
+        projectKey: "%2FUsers%2Fkodai%2Fworkspaces%2Fgithub.com%2Fkdnk%2Fgit-butler-practice",
+        order: 20,
+        enabled: true
+      },
+      contexts: [
+        {
+          id: "ctx-3",
+          type: "managed",
+          projectRoot: "/Users/kodai/workspaces/github.com/kdnk/git-butler-practice",
+          branch: "seiton-parser-test",
+          branchKey: "seiton-parser-test",
+          tmuxSession: "s_gbp_seiton-parser-test",
+          kittyTabTitle: "s_gbp_seiton-parser-test",
+          codexPanes: [
+            {
+              paneId: "%21",
+              command: "codex",
+              lastLine: "Needs review on parser output",
+              status: "waiting"
+            }
+          ],
+          order: 10,
+          status: "ready"
+        }
+      ]
+    }
+  ],
+  warnings: []
+};
+
+const previewCliStatus: CliCommandStatus = {
+  sourcePath: "/Users/kodai/workspaces/github.com/kdnk/seiton/dist-electron/cli.js",
+  targetPath: "/Users/kodai/.local/bin/seiton",
+  installed: true,
+  availableOnPath: false,
+  targetDirOnPath: false,
+  pathHint: 'Add /Users/kodai/.local/bin to PATH, for example: export PATH="/Users/kodai/.local/bin:$PATH"'
 };
 
 export function App() {
+  const previewMode = !window.seiton;
   const [state, setState] = useState<ViewState>({
     projectRoot: "",
     projectsWithContexts: [],
@@ -43,14 +132,18 @@ export function App() {
   });
   const [busy, setBusy] = useState(false);
   const [lastSync, setLastSync] = useState<string>("not synced");
+  const [cliStatus, setCliStatus] = useState<CliCommandStatus | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     void refresh();
+    void refreshCliStatus();
   }, []);
 
   async function refresh() {
     if (!window.seiton) {
-      setState(preloadUnavailableState);
+      setState(previewState);
+      setLastSync("Sample data");
       return;
     }
     setBusy(true);
@@ -59,6 +152,14 @@ export function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function refreshCliStatus() {
+    if (!window.seiton?.getCliCommandStatus) {
+      setCliStatus(previewCliStatus);
+      return;
+    }
+    setCliStatus(await window.seiton.getCliCommandStatus());
   }
 
   async function sync() {
@@ -134,7 +235,7 @@ export function App() {
       await window.seiton.selectRegisteredProject(root);
       const next = await window.seiton.sync();
       setState(next);
-      const pc = next.projectsWithContexts.find((p) => p.project.root === root);
+      const pc = next.projectsWithContexts.find((project) => project.project.root === root);
       const name = pc?.project.name ?? root;
       setLastSync(`${new Date().toLocaleTimeString()} (${name}) / ${next.commands.length} cmds`);
     } finally {
@@ -162,67 +263,138 @@ export function App() {
     }
   }
 
+  async function installCliCommand() {
+    if (!window.seiton?.installCliCommand) return;
+    setBusy(true);
+    try {
+      setCliStatus(await window.seiton.installCliCommand());
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <DndProvider backend={HTML5Backend}>
-      <main className="shell">
+      <main className="app-shell">
         <DragPreviewLayer />
 
-        <section className="hero">
-          <div>
-            <p className="eyebrow">kitty / GitButler / tmux</p>
-            <h1>seiton</h1>
-          <p className="lede">
-            Branch contexts, agent attention, and terminal focus in one control
-            surface.
-          </p>
-        </div>
+        <header className="topbar">
+          <div className="topbar-brand">
+            <div className="brand-mark">S</div>
+            <div className="brand-copy">
+              <strong>seiton</strong>
+              <span>{previewMode ? "sample workspace" : "workspace control"}</span>
+            </div>
+          </div>
           <div className="actions">
-            <button onClick={refresh} disabled={busy}>Refresh</button>
+            <button onClick={refresh} disabled={busy}>Reload</button>
             <button onClick={selectProjectRoot} disabled={busy || !window.seiton}>
-              Directory
+              Add root
             </button>
             <button className="primary" onClick={sync} disabled={busy || !window.seiton}>
-              Sync
+              Apply
             </button>
-            <span>{busy ? "working..." : lastSync}</span>
+            <button
+              className="icon-button"
+              aria-label="Open settings"
+              title="Settings"
+              onClick={() => setSettingsOpen(true)}
+              disabled={busy}
+            >
+              ⚙
+            </button>
           </div>
-        </section>
+        </header>
 
-        <section className="grid-single">
+        <section className="workspace-frame">
+          {state.warnings.length > 0 ? (
+            <section className="panel warning-strip" aria-label="Warnings">
+              <header>
+                <h2>Warnings</h2>
+                <span>{state.warnings.length}</span>
+              </header>
+              <div className="warnings-row">
+                {state.warnings.map((warning, i) => (
+                  <p key={i}>{warning}</p>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <div className="main-content">
-            {state.warnings.length > 0 ? (
-              <section className="panel warning-strip" aria-label="Warnings">
-                <header>
-                  <h2>Warnings</h2>
-                  <span>{state.warnings.length}</span>
-                </header>
-                <div className="warnings-row">
-                  {state.warnings.map((warning, i) => (
-                    <p key={i}>{warning}</p>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
             {state.projectsWithContexts.map((pc, projectIndex) => (
               <ProjectSection
                 key={pc.project.root}
                 projectWithContexts={pc}
                 projectIndex={projectIndex}
-                isActive={pc.project.root === state.projectRoot}
-              busy={busy}
-              onMoveProject={moveProject}
-              onMoveContext={moveContext}
-              onFocus={focus}
-              onFocusPane={focusPane}
-              onRename={renameContext}
-              onRemoveOrphan={removeOrphan}
-              onSync={() => syncProject(pc.project.root)}
-              onSelect={() => window.seiton?.selectRegisteredProject(pc.project.root).then(setState)}
-            />
+                busy={busy}
+                onMoveProject={moveProject}
+                onMoveContext={moveContext}
+                onFocus={focus}
+                onFocusPane={focusPane}
+                onRename={renameContext}
+                onRemoveOrphan={removeOrphan}
+                onSync={() => syncProject(pc.project.root)}
+              />
             ))}
           </div>
         </section>
+
+        {settingsOpen && cliStatus ? (
+          <div
+            className="modal-backdrop"
+            onClick={() => setSettingsOpen(false)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setSettingsOpen(false);
+            }}
+            role="presentation"
+          >
+            <section
+              className="panel settings-modal"
+              aria-label="Settings"
+              role="dialog"
+              aria-modal="true"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header>
+                <h2>Settings</h2>
+                <button
+                  className="icon-button"
+                  aria-label="Close settings"
+                  onClick={() => setSettingsOpen(false)}
+                >
+                  ×
+                </button>
+              </header>
+              <div className="settings-body">
+                <div className="settings-copy">
+                  <p className="settings-title">Install `seiton` in PATH</p>
+                  <p className="settings-text">
+                    {cliStatus.installed && cliStatus.availableOnPath
+                      ? "`seiton` is ready to use from your shell."
+                      : cliStatus.installed
+                        ? "The command is installed, but the target directory is not on PATH yet."
+                        : "Install a user-level `seiton` command for Codex hooks and shell usage."}
+                  </p>
+                  <div className="settings-meta">
+                    <span>{cliStatus.targetPath}</span>
+                    <span>{cliStatus.installed ? "installed" : "not installed"}</span>
+                    <span>{cliStatus.targetDirOnPath ? "PATH ok" : "PATH missing"}</span>
+                  </div>
+                  {cliStatus.pathHint ? (
+                    <p className="settings-hint">{cliStatus.pathHint}</p>
+                  ) : null}
+                </div>
+                <div className="settings-actions">
+                  <button onClick={refreshCliStatus} disabled={busy}>Refresh</button>
+                  <button className="primary" onClick={installCliCommand} disabled={busy || previewMode}>
+                    Install Command
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        ) : null}
       </main>
     </DndProvider>
   );
@@ -231,7 +403,6 @@ export function App() {
 function ProjectSection({
   projectWithContexts,
   projectIndex,
-  isActive,
   busy,
   onMoveProject,
   onMoveContext,
@@ -239,12 +410,10 @@ function ProjectSection({
   onFocusPane,
   onRename,
   onRemoveOrphan,
-  onSync,
-  onSelect
+  onSync
 }: {
   projectWithContexts: ProjectContexts;
   projectIndex: number;
-  isActive: boolean;
   busy: boolean;
   onMoveProject: (from: number, to: number) => void;
   onMoveContext: (projectRoot: string, from: number, to: number) => void;
@@ -253,7 +422,6 @@ function ProjectSection({
   onRename: (context: Context, newBranch: string) => void;
   onRemoveOrphan: (context: Context) => void;
   onSync: () => void;
-  onSelect: () => void;
 }) {
   const { project, contexts } = projectWithContexts;
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -313,12 +481,11 @@ function ProjectSection({
       className={classNames(
         "panel",
         "project-section",
-        isActive ? "active" : "",
         isDragging ? "dragging" : "",
         canDrop && isOver && dropEdge ? `drop-${dropEdge}` : ""
       )}
     >
-      <header onClick={onSelect} style={{ cursor: "pointer" }}>
+      <header>
         <div className="project-header-main">
           <button
             ref={handleRef}
@@ -328,18 +495,13 @@ function ProjectSection({
           >
             :::
           </button>
-          <h2>{project.name}</h2>
-          <small>{project.root}</small>
+          <div className="project-header-copy">
+            <h2>{project.name}</h2>
+            <small>{project.root}</small>
+          </div>
         </div>
         <div className="project-actions">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onSync();
-            }}
-          >
-            Sync
-          </button>
+          <button onClick={onSync}>Sync</button>
         </div>
       </header>
       <div className="rows">
@@ -475,29 +637,31 @@ function ContextRow({
         ::
       </button>
       <div className="context-main">
-        <span className={`status ${context.status}`}>{context.status}</span>
-        {isEditing ? (
-          <input
-            className="rename-input"
-            aria-label={`Rename ${context.branch}`}
-            autoFocus
-            value={draftBranch}
-            onChange={(event) => setDraftBranch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") submitRename();
-              if (event.key === "Escape") {
+        <div className="context-head">
+          <span className={`status ${context.status}`}>{context.status}</span>
+          {isEditing ? (
+            <input
+              className="rename-input"
+              aria-label={`Rename ${context.branch}`}
+              autoFocus
+              value={draftBranch}
+              onChange={(event) => setDraftBranch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") submitRename();
+                if (event.key === "Escape") {
+                  setDraftBranch(context.branch);
+                  setIsEditing(false);
+                }
+              }}
+              onBlur={() => {
                 setDraftBranch(context.branch);
                 setIsEditing(false);
-              }
-            }}
-            onBlur={() => {
-              setDraftBranch(context.branch);
-              setIsEditing(false);
-            }}
-          />
-        ) : (
-          <strong>{context.branch}</strong>
-        )}
+              }}
+            />
+          ) : (
+            <strong>{context.branch}</strong>
+          )}
+        </div>
         <small>{context.tmuxSession}</small>
         {context.codexPanes.length > 0 ? (
           <div className="codex-pane-list">
@@ -517,7 +681,7 @@ function ContextRow({
                   onClick={() => onFocusPane(pane)}
                   aria-label={`Focus pane ${pane.paneId}`}
                 >
-                  Focus
+                  Open
                 </button>
               </div>
             ))}

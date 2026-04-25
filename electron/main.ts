@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { access, lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applySyncCommand, focusContext, readFullSystemSnapshot, readSystemSnapshotForCwd, removeOrphanContext, renameManagedContext } from "../src/core/commands";
@@ -26,6 +27,15 @@ type AppState = {
   projectRoot: string;
   projectsWithContexts: ProjectContexts[];
   warnings: string[];
+};
+
+type CliCommandStatus = {
+  sourcePath: string;
+  targetPath: string;
+  installed: boolean;
+  availableOnPath: boolean;
+  targetDirOnPath: boolean;
+  pathHint?: string;
 };
 
 async function createWindow(): Promise<void> {
@@ -279,6 +289,31 @@ ipcMain.handle("seiton:reorder-contexts", async (_event, { projectRoot, from, to
   return await getFullState();
 });
 
+ipcMain.handle("seiton:get-cli-command-status", async (): Promise<CliCommandStatus> => {
+  return await getCliCommandStatus();
+});
+
+ipcMain.handle("seiton:install-cli-command", async (): Promise<CliCommandStatus> => {
+  const status = await getCliCommandStatus();
+  await mkdir(cliTargetDir(status.targetPath), { recursive: true });
+
+  try {
+    const stat = await lstat(status.targetPath);
+    if (stat.isSymbolicLink()) {
+      const existing = await readlink(status.targetPath);
+      if (resolveCliTarget(existing, status.targetPath) === status.sourcePath) {
+        return await getCliCommandStatus();
+      }
+    }
+    await rm(status.targetPath, { force: true });
+  } catch {
+    // target does not exist yet
+  }
+
+  await symlink(status.sourcePath, status.targetPath);
+  return await getCliCommandStatus();
+});
+
 async function reconcileAndPersistRegistry(
   appData: string,
   registry: Registry,
@@ -299,6 +334,62 @@ async function reconcileAndPersistRegistry(
     await saveRegistry(appData, next);
   }
   return next;
+}
+
+async function getCliCommandStatus(): Promise<CliCommandStatus> {
+  const sourcePath = join(__dirname, "cli.js");
+  const targetPath = chooseCliTargetPath();
+  const targetDir = cliTargetDir(targetPath);
+  const pathEntries = (process.env.PATH ?? "").split(":").filter(Boolean);
+  const availableOnPath = pathEntries.includes(targetDir);
+  const installed = await isInstalledSymlink(targetPath, sourcePath);
+
+  const status: CliCommandStatus = {
+    sourcePath,
+    targetPath,
+    installed,
+    availableOnPath: installed && availableOnPath,
+    targetDirOnPath: availableOnPath
+  };
+
+  if (!availableOnPath) {
+    status.pathHint = buildPathHint(targetDir);
+  }
+
+  return status;
+}
+
+function chooseCliTargetPath(): string {
+  const home = app.getPath("home");
+  const candidates = [join(home, "bin"), join(home, ".local", "bin")];
+  const pathEntries = (process.env.PATH ?? "").split(":").filter(Boolean);
+  const preferredDir = candidates.find((dir) => pathEntries.includes(dir)) ?? candidates[1]!;
+  return join(preferredDir, "seiton");
+}
+
+function cliTargetDir(targetPath: string): string {
+  return targetPath.slice(0, targetPath.lastIndexOf("/"));
+}
+
+async function isInstalledSymlink(targetPath: string, sourcePath: string): Promise<boolean> {
+  try {
+    await access(sourcePath);
+    const stat = await lstat(targetPath);
+    if (!stat.isSymbolicLink()) return false;
+    const linked = await readlink(targetPath);
+    return resolveCliTarget(linked, targetPath) === sourcePath;
+  } catch {
+    return false;
+  }
+}
+
+function resolveCliTarget(linkedPath: string, targetPath: string): string {
+  if (linkedPath.startsWith("/")) return linkedPath;
+  return join(cliTargetDir(targetPath), linkedPath);
+}
+
+function buildPathHint(targetDir: string): string {
+  return `Add ${targetDir} to PATH, for example: export PATH="${targetDir}:$PATH"`;
 }
 
 app.whenReady().then(createWindow);

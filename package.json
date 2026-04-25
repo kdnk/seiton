@@ -3,14 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "seiton": "dist-electron/cli.js"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "electron": "npm run build && electron .",
     "electron:practice": "SEITON_PROJECT_ROOT=/Users/kodai/workspaces/github.com/kdnk/git-butler-practice npm run electron",
-    "build": "tsc --noEmit && vite build && npm run build:electron",
+    "build": "tsc --noEmit && vite build && npm run build:electron && npm run build:cli",
     "build:electron": "npm run build:electron:main && npm run build:electron:preload",
     "build:electron:main": "esbuild electron/main.ts --bundle --platform=node --format=esm --outfile=dist-electron/main.js --external:electron",
     "build:electron:preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.cjs --external:electron",
+    "build:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist-electron/cli.js && chmod +x dist-electron/cli.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

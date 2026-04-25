@@ -13,8 +13,10 @@ import {
   type Registry
 } from "../src/core/model";
 import {
+  applyAgentHook,
   parseButBranches,
   parseTmuxCodexPanes,
+  readCodexPanesFromTmuxOptions,
   focusContext,
   removeOrphanContext,
   renameManagedContext,
@@ -318,6 +320,118 @@ describe("GitButler parsing", () => {
         },
       ]
     });
+  });
+
+  it("prefers tmux pane options for codex status", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_agent") {
+        return { stdout: "codex\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_status") {
+        return { stdout: "waiting\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_prompt") {
+        return { stdout: "needs review\n", stderr: "" };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    const result = await readCodexPanesFromTmuxOptions(
+      "s_a_feature%2Fnotify-ui\t%12\tnode\t",
+      "/repo/a",
+      exec
+    );
+
+    expect(result).toEqual({
+      "s_a_feature%2Fnotify-ui": [
+        {
+          paneId: "%12",
+          command: "codex",
+          lastLine: "needs review",
+          status: "waiting"
+        }
+      ]
+    });
+  });
+
+  it("ignores stale codex pane options after the process exits", async () => {
+    const exec: ExecFunction = async (file, args) => {
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_agent") {
+        return { stdout: "codex\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_status") {
+        return { stdout: "idle\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_prompt") {
+        return { stdout: "stale\n", stderr: "" };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    const result = await readCodexPanesFromTmuxOptions(
+      "s_a_feature%2Fnotify-ui\t%12\tfish\t",
+      "/repo/a",
+      exec
+    );
+
+    expect(result).toEqual({});
+  });
+
+  it("writes codex hook events into tmux pane options", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      return { stdout: "", stderr: "" };
+    };
+
+    await applyAgentHook(
+      "codex",
+      "user-prompt-submit",
+      JSON.stringify({ prompt: "Review current branch", cwd: "/repo/a" }),
+      { TMUX_PANE: "%12", PWD: "/repo/a" },
+      "/repo/a",
+      exec
+    );
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%12", "@seiton_agent", "codex"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%12", "@seiton_status", "running"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%12", "@seiton_prompt", "Review current branch"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%12", "@seiton_cwd", "/repo/a"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%12", "@seiton_started_at", expect.any(String)],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-u", "-t", "%12", "@seiton_attention"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-u", "-t", "%12", "@seiton_wait_reason"],
+        cwd: "/repo/a"
+      }
+    ]);
   });
 });
 
