@@ -1,0 +1,72 @@
+{
+  "name": "seiton",
+  "version": "0.1.0",
+  "description": "Seiton - Workspace Manager for GitButler, tmux, and Kitty",
+  "author": "Kodai Nakamura",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "seiton": "dist-electron/cli.js"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "electron": "npm run build && electron .",
+    "electron:practice": "SEITON_PROJECT_ROOT=/Users/kodai/workspaces/github.com/kdnk/git-butler-practice npm run electron",
+    "build": "tsc --noEmit && vite build && npm run build:electron && npm run build:cli",
+    "build:electron": "npm run build:electron:main && npm run build:electron:preload",
+    "build:electron:main": "esbuild electron/main.ts --bundle --platform=node --format=esm --outfile=dist-electron/main.js --external:electron",
+    "build:electron:preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.cjs --external:electron",
+    "build:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist-electron/cli.js && chmod +x dist-electron/cli.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "publish": "npm run build && electron-builder --publish always"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "react": "^19.2.3",
+    "react-dnd": "^16.0.1",
+    "react-dnd-html5-backend": "^16.0.1",
+    "react-dom": "^19.2.3",
+    "vite": "^7.2.7"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.1",
+    "@types/node": "^25.0.3",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "electron": "^39.2.7",
+    "electron-builder": "^25.1.8",
+    "jsdom": "^27.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  },
+  "main": "dist-electron/main.js",
+  "build": {
+    "appId": "com.kdnk.seiton",
+    "productName": "Seiton",
+    "directories": {
+      "output": "dist-package"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "kdnk",
+      "repo": "seiton"
+    }
+  }
+}
