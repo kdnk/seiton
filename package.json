@@ -1,6 +1,8 @@
 {
   "name": "seiton",
   "version": "0.1.0",
+  "description": "Seiton - Workspace Manager for GitButler, tmux, and Kitty",
+  "author": "Kodai Nakamura",
   "private": true,
   "type": "module",
   "bin": {
@@ -16,11 +18,11 @@
     "build:electron:preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.cjs --external:electron",
     "build:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist-electron/cli.js && chmod +x dist-electron/cli.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "publish": "npm run build && electron-builder --publish always"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
-    "electron": "^39.2.7",
     "react": "^19.2.3",
     "react-dnd": "^16.0.1",
     "react-dnd-html5-backend": "^16.0.1",
@@ -33,9 +35,38 @@
     "@types/node": "^25.0.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "electron": "^39.2.7",
+    "electron-builder": "^25.1.8",
     "jsdom": "^27.3.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
   },
-  "main": "dist-electron/main.js"
+  "main": "dist-electron/main.js",
+  "build": {
+    "appId": "com.kdnk.seiton",
+    "productName": "Seiton",
+    "directories": {
+      "output": "dist-package"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "kdnk",
+      "repo": "seiton"
+    }
+  }
 }
