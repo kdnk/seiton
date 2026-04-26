@@ -619,6 +619,68 @@ describe("GitButler parsing", () => {
       }
     ]);
   });
+
+  it("writes claude notification events into tmux pane options", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const notifications: Array<{ agent: string; event: string; paneId: string; cwd?: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      return { stdout: "", stderr: "" };
+    };
+
+    await applyAgentHook(
+      "claude",
+      "Notification",
+      JSON.stringify({ message: "Need approval to continue", cwd: "/repo/a" }),
+      { TMUX_PANE: "%21", PWD: "/repo/a" },
+      "/repo/a",
+      exec,
+      async (payload) => {
+        notifications.push(payload);
+      }
+    );
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_agent", "claude"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_status", "waiting"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_prompt", "Need approval to continue"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_cwd", "/repo/a"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_attention", "notification"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_wait_reason", "notification"],
+        cwd: "/repo/a"
+      }
+    ]);
+    expect(notifications).toEqual([
+      {
+        agent: "claude",
+        event: "notification",
+        paneId: "%21",
+        cwd: "/repo/a"
+      }
+    ]);
+  });
 });
 
 describe("codex pane command labels", () => {

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { appendActivityLog } from "./activity-log";
 import { emitLiveUpdate } from "./live-updates";
 import { buildManagedName, type AgentName, type AgentPane, type Branch, type KittyTab, type SyncCommand } from "./model";
 
@@ -65,7 +66,7 @@ type TmuxClient = {
   pid?: number;
 };
 
-type HookEnvironment = {
+export type HookEnvironment = {
   TMUX_PANE?: string;
   PWD?: string;
 };
@@ -332,19 +333,49 @@ export async function applyAgentHook(
   const hookInput: { cwd?: string; prompt?: string } = {};
   if (cwdValue) hookInput.cwd = cwdValue;
   if (prompt) hookInput.prompt = prompt;
+  const normalizedEvent = normalizeHookEvent(agent, event);
 
   if (agent === "codex") {
-    await applyCodexHook(event, paneId, hookInput, cwd, run);
-    await notify({
-      agent,
-      event,
-      paneId,
-      ...(cwdValue ? { cwd: cwdValue } : {})
-    });
-    return;
+    await applyCodexHook(normalizedEvent, paneId, hookInput, cwd, run);
+  } else if (agent === "claude") {
+    await applyClaudeHook(normalizedEvent, paneId, hookInput, cwd, run);
+  } else {
+    throw new Error(`Unsupported agent: ${agent}`);
   }
 
-  throw new Error(`Unsupported agent: ${agent}`);
+  await notify({
+    agent,
+    event: normalizedEvent,
+    paneId,
+    ...(cwdValue ? { cwd: cwdValue } : {})
+  });
+}
+
+export async function notifyCurrentPane(
+  message: string,
+  env: HookEnvironment,
+  cwd = process.cwd(),
+  run: ExecFunction = exec
+): Promise<void> {
+  const paneId = env.TMUX_PANE?.trim();
+  if (!paneId) {
+    throw new Error("TMUX_PANE is required");
+  }
+
+  await writePaneOptions(
+    paneId,
+    {
+      "@seiton_status": "waiting",
+      "@seiton_prompt": message,
+      "@seiton_cwd": env.PWD?.trim() ?? cwd,
+      "@seiton_attention": "notification",
+      "@seiton_wait_reason": "notification"
+    },
+    cwd,
+    run
+  );
+
+  await appendActivityLog(paneId, message);
 }
 
 async function readBranches(cwd: string): Promise<CommandResult<Branch[]>> {
@@ -773,6 +804,32 @@ export function resolveAgentPaneCommand(agent: AgentName, currentCommand: string
   return parts.join(" ");
 }
 
+function normalizeHookEvent(agent: string, event: string): string {
+  const normalized = event.trim().replace(/[_\s]+/g, "-").toLowerCase();
+
+  if (agent === "codex") {
+    if (["session-start", "user-prompt-submit", "stop"].includes(normalized)) return normalized;
+    throw new Error(`Unsupported codex event: ${event}`);
+  }
+
+  if (agent === "claude") {
+    const mapped: Record<string, string> = {
+      "session-start": "session_start",
+      "user-prompt-submit": "user_prompt_submit",
+      notification: "notification",
+      stop: "stop",
+      "stop-failure": "stop_failure",
+      "post-tool-use": "activity_log",
+      "session-end": "session_end"
+    };
+    const next = mapped[normalized];
+    if (next) return next;
+    throw new Error(`Unsupported claude event: ${event}`);
+  }
+
+  throw new Error(`Unsupported agent: ${agent}`);
+}
+
 function looksLikeFilesystemPath(value: string): boolean {
   return value.startsWith("/") || value.startsWith("./") || value.startsWith("../") || value.startsWith("~/");
 }
@@ -851,6 +908,106 @@ async function applyCodexHook(
       return;
     default:
       throw new Error(`Unsupported codex event: ${event}`);
+  }
+}
+
+async function applyClaudeHook(
+  event: string,
+  paneId: string,
+  input: { cwd?: string; prompt?: string },
+  cwd: string,
+  run: ExecFunction
+): Promise<void> {
+  switch (event) {
+    case "session_start":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "claude",
+          "@seiton_status": "idle",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd
+        },
+        cwd,
+        run
+      );
+      await unsetPaneOptions(paneId, ["@seiton_attention", "@seiton_wait_reason", "@seiton_started_at"], cwd, run);
+      return;
+    case "user_prompt_submit":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "claude",
+          "@seiton_status": "running",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd,
+          "@seiton_started_at": new Date().toISOString()
+        },
+        cwd,
+        run
+      );
+      await unsetPaneOptions(paneId, ["@seiton_attention", "@seiton_wait_reason"], cwd, run);
+      return;
+    case "notification":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "claude",
+          "@seiton_status": "waiting",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd,
+          "@seiton_attention": "notification",
+          "@seiton_wait_reason": "notification"
+        },
+        cwd,
+        run
+      );
+      return;
+    case "stop":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "claude",
+          "@seiton_status": "idle",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd
+        },
+        cwd,
+        run
+      );
+      await unsetPaneOptions(paneId, ["@seiton_attention", "@seiton_wait_reason", "@seiton_started_at"], cwd, run);
+      return;
+    case "stop_failure":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "claude",
+          "@seiton_status": "error",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd,
+          "@seiton_attention": "notification",
+          "@seiton_wait_reason": "stop_failure"
+        },
+        cwd,
+        run
+      );
+      return;
+    case "activity_log":
+      await appendActivityLog(paneId, input.prompt ?? "Claude tool activity");
+      return;
+    case "session_end":
+      await unsetPaneOptions(paneId, [
+        "@seiton_agent",
+        "@seiton_status",
+        "@seiton_prompt",
+        "@seiton_cwd",
+        "@seiton_attention",
+        "@seiton_wait_reason",
+        "@seiton_started_at"
+      ], cwd, run);
+      return;
+    default:
+      throw new Error(`Unsupported claude event: ${event}`);
   }
 }
 
