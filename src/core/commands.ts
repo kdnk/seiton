@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { emitLiveUpdate } from "./live-updates";
-import { buildManagedName, type AgentPane, type Branch, type CodexPane, type KittyTab, type SyncCommand } from "./model";
+import { buildManagedName, type AgentName, type AgentPane, type Branch, type KittyTab, type SyncCommand } from "./model";
 
 const execFileAsync = promisify(execFile);
 
@@ -85,7 +85,7 @@ export async function readFullSystemSnapshot(projectRoots: string[]): Promise<Fu
   const [tmuxSessions, kittyTabs, agentPanesBySession] = await Promise.all([
     readTmuxSessions(process.cwd()),
     readKittyTabs(process.cwd()),
-    readCodexPanes(process.cwd())
+    readAgentPanes(process.cwd())
   ]);
 
   const projectResults = await Promise.all(
@@ -120,7 +120,7 @@ export async function readSystemSnapshotForCwd(cwd: string): Promise<SystemSnaps
     readBranches(cwd),
     readTmuxSessions(cwd),
     readKittyTabs(cwd),
-    readCodexPanes(cwd)
+    readAgentPanes(cwd)
   ]);
 
   return {
@@ -413,7 +413,7 @@ async function readKittyTabs(cwd: string): Promise<CommandResult<KittyTab[]>> {
   }
 }
 
-async function readCodexPanes(cwd: string): Promise<CommandResult<Record<string, CodexPane[]>>> {
+async function readAgentPanes(cwd: string): Promise<CommandResult<Record<string, AgentPane[]>>> {
   try {
     const { stdout } = await exec("tmux", [
       "list-panes",
@@ -421,9 +421,9 @@ async function readCodexPanes(cwd: string): Promise<CommandResult<Record<string,
       "-F",
       "#{session_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_start_command}"
     ], cwd);
-    const optionBacked = await readCodexPanesFromTmuxOptions(stdout, cwd, exec);
+    const optionBacked = await readAgentPanesFromTmuxOptions(stdout, cwd, exec);
     const fallback = await parseTmuxCodexPanes(stdout, cwd, exec);
-    return { ok: true, value: mergeCodexPaneMaps(optionBacked, fallback) };
+    return { ok: true, value: mergeAgentPaneMaps(optionBacked, fallback) };
   } catch (error) {
     return {
       ok: false,
@@ -542,37 +542,33 @@ function parseTmuxClients(stdout: string): TmuxClient[] {
     });
 }
 
-export async function readCodexPanesFromTmuxOptions(
+export async function readAgentPanesFromTmuxOptions(
   stdout: string,
   cwd: string,
   run: ExecFunction
-): Promise<Record<string, CodexPane[]>> {
+): Promise<Record<string, AgentPane[]>> {
   const paneCandidates = parsePaneCandidates(stdout);
-  const result: Record<string, CodexPane[]> = {};
+  const result: Record<string, AgentPane[]> = {};
 
   for (const pane of paneCandidates) {
-    const entry = await readCodexPaneFromTmuxOptions(pane, cwd, run);
+    const entry = await readAgentPaneFromTmuxOptions(pane, cwd, run);
     if (!entry) continue;
     const existing = result[pane.sessionName] ?? [];
     existing.push(entry);
     result[pane.sessionName] = existing;
   }
 
-  for (const sessionName of Object.keys(result)) {
-    result[sessionName] = result[sessionName]!.sort((a, b) => a.paneId.localeCompare(b.paneId));
-  }
-
-  return result;
+  return sortPaneMap(result);
 }
 
 export async function parseTmuxCodexPanes(
   stdout: string,
   cwd: string,
   run: ExecFunction
-): Promise<Record<string, CodexPane[]>> {
+): Promise<Record<string, AgentPane[]>> {
   const paneCandidates = parsePaneCandidates(stdout);
 
-  const result: Record<string, CodexPane[]> = {};
+  const result: Record<string, AgentPane[]> = {};
   for (const pane of paneCandidates) {
     const snapshot = await readPaneSnapshot(pane.paneId, cwd, run);
     if (!isCodexPane(pane.currentCommand, pane.startCommand, snapshot.fullText)) {
@@ -581,9 +577,10 @@ export async function parseTmuxCodexPanes(
     if (!isLiveCodexPane(pane.currentCommand, pane.startCommand, snapshot.fullText)) {
       continue;
     }
-    const entry: CodexPane = {
+    const entry: AgentPane = {
+      agent: "codex",
       paneId: pane.paneId,
-      command: resolveCodexPaneCommand(pane.currentCommand, pane.startCommand),
+      command: resolveAgentPaneCommand("codex", pane.currentCommand, pane.startCommand),
       lastLine: snapshot.lastLine,
       status: inferCodexPaneStatus(snapshot.fullText)
     };
@@ -592,11 +589,7 @@ export async function parseTmuxCodexPanes(
     result[pane.sessionName] = existing;
   }
 
-  for (const sessionName of Object.keys(result)) {
-    result[sessionName] = result[sessionName]!.sort((a, b) => a.paneId.localeCompare(b.paneId));
-  }
-
-  return result;
+  return sortPaneMap(result);
 }
 
 function parsePaneCandidates(stdout: string): PaneCandidate[] {
@@ -610,15 +603,15 @@ function parsePaneCandidates(stdout: string): PaneCandidate[] {
     });
 }
 
-function mergeCodexPaneMaps(
-  primary: Record<string, CodexPane[]>,
-  secondary: Record<string, CodexPane[]>
-): Record<string, CodexPane[]> {
-  const merged: Record<string, CodexPane[]> = {};
+function mergeAgentPaneMaps(
+  primary: Record<string, AgentPane[]>,
+  secondary: Record<string, AgentPane[]>
+): Record<string, AgentPane[]> {
+  const merged: Record<string, AgentPane[]> = {};
   const sessionNames = new Set([...Object.keys(primary), ...Object.keys(secondary)]);
 
   for (const sessionName of sessionNames) {
-    const byPaneId = new Map<string, CodexPane>();
+    const byPaneId = new Map<string, AgentPane>();
     for (const pane of secondary[sessionName] ?? []) byPaneId.set(pane.paneId, pane);
     for (const pane of primary[sessionName] ?? []) byPaneId.set(pane.paneId, pane);
     const values = [...byPaneId.values()].sort((a, b) => a.paneId.localeCompare(b.paneId));
@@ -626,6 +619,13 @@ function mergeCodexPaneMaps(
   }
 
   return merged;
+}
+
+function sortPaneMap(result: Record<string, AgentPane[]>): Record<string, AgentPane[]> {
+  for (const sessionName of Object.keys(result)) {
+    result[sessionName] = result[sessionName]!.sort((a, b) => a.paneId.localeCompare(b.paneId));
+  }
+  return result;
 }
 
 async function exec(
@@ -671,14 +671,14 @@ async function readPaneWindowId(
   }
 }
 
-async function readCodexPaneFromTmuxOptions(
+async function readAgentPaneFromTmuxOptions(
   pane: PaneCandidate,
   cwd: string,
   run: ExecFunction
-): Promise<CodexPane | undefined> {
+): Promise<AgentPane | undefined> {
   const agent = await readPaneOption(pane.paneId, "@seiton_agent", cwd, run);
-  if (agent !== "codex") return undefined;
-  if (!isCodexRuntimeActive(pane.currentCommand, pane.startCommand)) {
+  if (agent !== "codex" && agent !== "claude") return undefined;
+  if (!isAgentRuntimeActive(agent, pane.currentCommand, pane.startCommand)) {
     return undefined;
   }
 
@@ -690,10 +690,11 @@ async function readCodexPaneFromTmuxOptions(
   const fallbackLine = prompt ? "" : (await readPaneSnapshot(pane.paneId, cwd, run)).lastLine;
 
   return {
+    agent,
     paneId: pane.paneId,
-    command: "codex",
+    command: resolveAgentPaneCommand(agent, pane.currentCommand, pane.startCommand),
     lastLine: prompt || fallbackLine,
-    status: normalizeCodexPaneStatus(status)
+    status: normalizeAgentPaneStatus(status)
   };
 }
 
@@ -732,6 +733,17 @@ function isCodexRuntimeActive(currentCommand: string, startCommand: string): boo
   return current === "node";
 }
 
+function isClaudeRuntimeActive(currentCommand: string, startCommand: string): boolean {
+  const haystack = `${currentCommand} ${startCommand}`.toLowerCase();
+  return haystack.includes("claude");
+}
+
+function isAgentRuntimeActive(agent: AgentName, currentCommand: string, startCommand: string): boolean {
+  return agent === "codex"
+    ? isCodexRuntimeActive(currentCommand, startCommand)
+    : isClaudeRuntimeActive(currentCommand, startCommand);
+}
+
 function isLiveCodexPane(currentCommand: string, startCommand: string, paneText: string): boolean {
   if (!isCodexRuntimeActive(currentCommand, startCommand)) {
     return false;
@@ -746,11 +758,11 @@ function isLiveCodexPane(currentCommand: string, startCommand: string, paneText:
   );
 }
 
-export function resolveCodexPaneCommand(currentCommand: string, startCommand: string): string {
+export function resolveAgentPaneCommand(agent: AgentName, currentCommand: string, startCommand: string): string {
   const command = (startCommand || currentCommand).trim();
-  if (!command) return "codex";
+  if (!command) return agent;
   if (command === "node" || command === "bash" || command === "zsh" || command === "fish") {
-    return "codex";
+    return agent;
   }
   const parts = command.split(/\s+/).filter(Boolean);
   while (parts.length > 1) {
@@ -765,7 +777,7 @@ function looksLikeFilesystemPath(value: string): boolean {
   return value.startsWith("/") || value.startsWith("./") || value.startsWith("../") || value.startsWith("~/");
 }
 
-function inferCodexPaneStatus(paneText: string): CodexPane["status"] {
+function inferCodexPaneStatus(paneText: string): AgentPane["status"] {
   const recentLines = paneText
     .split("\n")
     .map((line) => line.trim())
@@ -779,7 +791,7 @@ function inferCodexPaneStatus(paneText: string): CodexPane["status"] {
   return "running";
 }
 
-function normalizeCodexPaneStatus(status: string | undefined): CodexPane["status"] {
+function normalizeAgentPaneStatus(status: string | undefined): AgentPane["status"] {
   if (status === "idle" || status === "running" || status === "waiting" || status === "error") {
     return status;
   }
