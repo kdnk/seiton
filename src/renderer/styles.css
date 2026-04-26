@@ -64,7 +64,7 @@ button.primary {
 }
 
 .app-shell {
-  max-width: 720px;
+  width: 100%;
   padding: 10px;
 }
 
@@ -97,6 +97,7 @@ button.primary {
 .workspace-frame {
   display: grid;
   gap: 8px;
+  width: 100%;
 }
 
 .panel {
@@ -107,6 +108,7 @@ button.primary {
 .main-content {
   display: grid;
   gap: 8px;
+  width: 100%;
 }
 
 .panel {
@@ -149,10 +151,12 @@ button.primary {
 .context-slot {
   display: grid;
   gap: 0;
+  width: 100%;
 }
 
 .project-section {
   overflow: hidden;
+  width: 100%;
 }
 
 .project-section header {
@@ -210,7 +214,7 @@ button.primary {
 
 .context-row {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
+  grid-template-columns: 26px minmax(0, 1fr);
   gap: 7px;
   align-items: flex-start;
   padding: 7px 6px;
@@ -242,7 +246,16 @@ button.primary {
 
 .context-main {
   display: grid;
-  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.context-stack {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
 }
 
 .context-head {
@@ -280,15 +293,16 @@ button.primary {
 
 .codex-pane-list {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+  padding-left: 2px;
 }
 
 .codex-pane-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
+  gap: 6px;
   align-items: flex-start;
-  padding: 6px 8px;
+  padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-3);
@@ -299,16 +313,24 @@ button.primary {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .codex-pane-main strong {
   font-size: 0.82rem;
   font-weight: 600;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .codex-pane-main small {
   font-size: 0.68rem;
+  color: var(--muted);
+  opacity: 0.72;
+  flex: 0 0 auto;
 }
 
 .codex-pane-line {
@@ -322,14 +344,16 @@ button.primary {
 }
 
 .codex-pane-focus {
-  justify-self: start;
   padding: 0.3rem 0.56rem;
   font-size: 0.74rem;
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 .context-actions {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 6px;
 }
@@ -337,6 +361,17 @@ button.primary {
 .context-actions button {
   padding: 0.32rem 0.58rem;
   font-size: 0.76rem;
+}
+
+@media (max-width: 720px) {
+  .context-main {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .context-actions {
+    justify-content: flex-start;
+  }
 }
 
 .danger-icon {
@@ -357,9 +392,13 @@ button.primary {
   background: var(--soft);
 }
 
-.status.ready,
-.status.idle {
+.status.ready {
   background: var(--green);
+}
+
+.status.idle {
+  background: #7f8792;
+  color: #0f141a;
 }
 
 .status.running,
@@ -548,5 +587,13 @@ button.primary {
 
   .project-header-copy h2 {
     font-size: 0.85rem;
+  }
+
+  .codex-pane-main {
+    flex-wrap: wrap;
+  }
+
+  .codex-pane-focus {
+    margin-left: 0;
   }
 }

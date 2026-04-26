@@ -158,6 +158,28 @@ export function App() {
     });
   }, []);
 
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((!event.metaKey && !event.ctrlKey) || event.key.toLowerCase() !== "o") return;
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void addProjectRoot();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [busy]);
+
   async function refresh() {
     if (!window.seiton) {
       setState(previewState);
@@ -205,11 +227,13 @@ export function App() {
   async function focus(context: Context) {
     if (!window.seiton) return;
     await window.seiton.focus(context.projectRoot, context.branchKey, context.primaryPaneId);
+    await refresh();
   }
 
   async function focusPane(context: Context, pane: CodexPane) {
     if (!window.seiton) return;
     await window.seiton.focus(context.projectRoot, context.branchKey, pane.paneId);
+    await refresh();
   }
 
   async function removeOrphan(context: Context) {
@@ -297,7 +321,7 @@ export function App() {
           <div className="actions">
             <button onClick={refresh} disabled={busy}>Reload</button>
             <button onClick={addProjectRoot} disabled={busy || !window.seiton}>
-              Add root
+              Add project
             </button>
             <button className="primary" onClick={sync} disabled={busy || !window.seiton}>
               Apply
@@ -665,33 +689,68 @@ function ContextRow({
         >
           ::
         </button>
-        <div className="context-main">
-          <div className="context-head">
-            <span className={`status ${context.status}`}>{context.status}</span>
-            {isEditing ? (
-              <input
-                className="rename-input"
-                aria-label={`Rename ${context.branch}`}
-                autoFocus
-                value={draftBranch}
-                onChange={(event) => setDraftBranch(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") submitRename();
-                  if (event.key === "Escape") {
+        <div className="context-stack">
+          <div className="context-main">
+            <div className="context-head">
+              <span className={`status ${context.status}`}>{context.status}</span>
+              {isEditing ? (
+                <input
+                  className="rename-input"
+                  aria-label={`Rename ${context.branch}`}
+                  autoFocus
+                  value={draftBranch}
+                  onChange={(event) => setDraftBranch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") submitRename();
+                    if (event.key === "Escape") {
+                      setDraftBranch(context.branch);
+                      setIsEditing(false);
+                    }
+                  }}
+                  onBlur={() => {
                     setDraftBranch(context.branch);
                     setIsEditing(false);
-                  }
-                }}
-                onBlur={() => {
-                  setDraftBranch(context.branch);
-                  setIsEditing(false);
-                }}
-              />
-            ) : (
-              <strong>{context.branch}</strong>
-            )}
+                  }}
+                />
+              ) : (
+                <strong>{context.branch}</strong>
+              )}
+            </div>
+            <div className="context-actions">
+              <button onClick={onFocus}>Focus</button>
+              {context.status !== "orphan_tmux" ? (
+                isEditing ? (
+                  <>
+                    <button disabled={busy} onMouseDown={(event) => event.preventDefault()} onClick={submitRename}>
+                      Save
+                    </button>
+                    <button
+                      disabled={busy}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setDraftBranch(context.branch);
+                        setIsEditing(false);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button disabled={busy} onClick={() => setIsEditing(true)}>Rename</button>
+                )
+              ) : null}
+              {context.status === "orphan_tmux" ? (
+                <button
+                  className="danger-icon"
+                  aria-label={`Remove orphan ${context.branch}`}
+                  disabled={busy}
+                  onClick={onRemoveOrphan}
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
           </div>
-          <small>{context.tmuxSession}</small>
           {context.codexPanes.length > 0 ? (
             <div className="codex-pane-list">
               {context.codexPanes.map((pane) => (
@@ -700,55 +759,21 @@ function ContextRow({
                     <span className={`status codex-status ${pane.status}`}>{pane.status}</span>
                     <strong>{pane.command}</strong>
                     <small>{pane.paneId}</small>
+                    <button
+                      className="codex-pane-focus"
+                      disabled={busy}
+                      onClick={() => onFocusPane(pane)}
+                      aria-label={`Focus pane ${pane.paneId}`}
+                    >
+                      Open
+                    </button>
                   </div>
                   <p className="codex-pane-line" title={pane.lastLine}>
                     {pane.lastLine || "No recent output"}
                   </p>
-                  <button
-                    className="codex-pane-focus"
-                    disabled={busy}
-                    onClick={() => onFocusPane(pane)}
-                    aria-label={`Focus pane ${pane.paneId}`}
-                  >
-                    Open
-                  </button>
                 </div>
               ))}
             </div>
-          ) : null}
-        </div>
-        <div className="context-actions">
-          <button onClick={onFocus}>Focus</button>
-          {context.status !== "orphan_tmux" ? (
-            isEditing ? (
-              <>
-                <button disabled={busy} onMouseDown={(event) => event.preventDefault()} onClick={submitRename}>
-                  Save
-                </button>
-                <button
-                  disabled={busy}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setDraftBranch(context.branch);
-                    setIsEditing(false);
-                  }}
-                >
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <button disabled={busy} onClick={() => setIsEditing(true)}>Rename</button>
-            )
-          ) : null}
-          {context.status === "orphan_tmux" ? (
-            <button
-              className="danger-icon"
-              aria-label={`Remove orphan ${context.branch}`}
-              disabled={busy}
-              onClick={onRemoveOrphan}
-            >
-              ×
-            </button>
           ) : null}
         </div>
       </div>

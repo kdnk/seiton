@@ -44,6 +44,7 @@ export type RenameManagedInput = {
   newBranch: string;
   oldTmuxSession: string;
   oldKittyTabTitle: string;
+  oldKittyTabId?: number;
 };
 
 type PaneCandidate = {
@@ -51,6 +52,17 @@ type PaneCandidate = {
   paneId: string;
   currentCommand: string;
   startCommand: string;
+};
+
+type KittyTabClient = {
+  title: string;
+  activeWindowPid?: number;
+};
+
+type TmuxClient = {
+  tty: string;
+  sessionName: string;
+  pid?: number;
 };
 
 type HookEnvironment = {
@@ -227,8 +239,15 @@ export async function focusContext(
     ], cwd);
   }
 
+  const targetClientTty = hasKitty
+    ? await readTargetTmuxClientTtyForKittyTab(title, cwd, run)
+    : undefined;
+
   try {
-    await run("tmux", ["switch-client", "-t", title], cwd);
+    const args = targetClientTty
+      ? ["switch-client", "-c", targetClientTty, "-t", title]
+      : ["switch-client", "-t", title];
+    await run("tmux", args, cwd);
   } catch (error) {
     if (!isNoCurrentTmuxClient(error)) {
       throw error;
@@ -280,9 +299,12 @@ export async function renameManagedContext(
     if (!isMissingTmuxSession(error)) throw error;
   }
   try {
+    const tabMatch = input.oldKittyTabId !== undefined
+      ? `id:${input.oldKittyTabId}`
+      : `title:${input.oldKittyTabTitle}`;
     await run(
       "kitty",
-      ["@", "set-tab-title", nextManagedName, "--match", `title:${input.oldKittyTabTitle}`],
+      ["@", "set-tab-title", nextManagedName, "--match", tabMatch],
       cwd
     );
   } catch (error) {
@@ -454,6 +476,67 @@ export function parseKittyTabs(stdout: string): KittyTab[] {
       index
     }))
   );
+}
+
+async function readTargetTmuxClientTtyForKittyTab(
+  title: string,
+  cwd: string,
+  run: ExecFunction
+): Promise<string | undefined> {
+  try {
+    const [kittyLs, tmuxClients] = await Promise.all([
+      run("kitty", ["@", "ls"], cwd),
+      run("tmux", ["list-clients", "-F", "#{client_tty}\t#{session_name}\t#{client_pid}"], cwd)
+    ]);
+    const tabClient = parseKittyTabClients(kittyLs.stdout).find((tab) => tab.title === title);
+    if (!tabClient?.activeWindowPid) return undefined;
+    const tmuxClient = parseTmuxClients(tmuxClients.stdout).find(
+      (client) => client.pid === tabClient.activeWindowPid
+    );
+    return tmuxClient?.tty;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseKittyTabClients(stdout: string): KittyTabClient[] {
+  const parsed = JSON.parse(stdout) as Array<{
+    tabs?: Array<{
+      title: string;
+      windows?: Array<{
+        is_active?: boolean;
+        pid?: number;
+        foreground_processes?: Array<{ pid?: number }>;
+      }>;
+    }>;
+  }>;
+
+  return parsed.flatMap((osWindow) =>
+    (osWindow.tabs ?? []).map((tab) => {
+      const activeWindow =
+        tab.windows?.find((window) => window.is_active) ?? tab.windows?.at(0);
+      return {
+        title: tab.title,
+        activeWindowPid: activeWindow?.foreground_processes?.[0]?.pid ?? activeWindow?.pid
+      };
+    })
+  );
+}
+
+function parseTmuxClients(stdout: string): TmuxClient[] {
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [tty = "", sessionName = "", pidText = ""] = line.split("\t");
+      const pid = Number.parseInt(pidText, 10);
+      return {
+        tty,
+        sessionName,
+        pid: Number.isFinite(pid) ? pid : undefined
+      };
+    });
 }
 
 export async function readCodexPanesFromTmuxOptions(
@@ -660,13 +743,23 @@ function isLiveCodexPane(currentCommand: string, startCommand: string, paneText:
   );
 }
 
-function resolveCodexPaneCommand(currentCommand: string, startCommand: string): string {
+export function resolveCodexPaneCommand(currentCommand: string, startCommand: string): string {
   const command = (startCommand || currentCommand).trim();
   if (!command) return "codex";
   if (command === "node" || command === "bash" || command === "zsh" || command === "fish") {
     return "codex";
   }
-  return command;
+  const parts = command.split(/\s+/).filter(Boolean);
+  while (parts.length > 1) {
+    const tail = parts.at(-1);
+    if (!tail || !looksLikeFilesystemPath(tail)) break;
+    parts.pop();
+  }
+  return parts.join(" ");
+}
+
+function looksLikeFilesystemPath(value: string): boolean {
+  return value.startsWith("/") || value.startsWith("./") || value.startsWith("../") || value.startsWith("~/");
 }
 
 function inferCodexPaneStatus(paneText: string): CodexPane["status"] {

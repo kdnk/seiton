@@ -60,4 +60,60 @@ describe("registry persistence", () => {
       contexts: [{ branch: "feature/a", order: 10 }]
     });
   });
+
+  it("drops the filesystem root and its scoped contexts when loading", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "seiton-registry-"));
+
+    await saveRegistry(tempDir, {
+      projects: [
+        {
+          root: "/repo/a",
+          name: "a",
+          projectKey: "%2Frepo%2Fa",
+          order: 10,
+          enabled: true
+        },
+        {
+          root: "/",
+          name: "/",
+          projectKey: "%2F",
+          order: 20,
+          enabled: true
+        }
+      ],
+      contexts: [
+        {
+          id: "ctx-valid",
+          projectRoot: "/repo/a",
+          branch: "feature/a",
+          branchKey: "feature%2Fa",
+          tmuxSession: "seiton__%2Frepo%2Fa__feature%2Fa",
+          kittyTabTitle: "seiton__%2Frepo%2Fa__feature%2Fa",
+          order: 10,
+          createdAt: "2026-04-24T10:00:00+09:00",
+          updatedAt: "2026-04-24T10:00:00+09:00"
+        },
+        {
+          id: "ctx-root",
+          projectRoot: "/",
+          branch: "feature/root",
+          branchKey: "feature%2Froot",
+          tmuxSession: "seiton__%2F__feature%2Froot",
+          kittyTabTitle: "seiton__%2F__feature%2Froot",
+          order: 20,
+          createdAt: "2026-04-24T10:00:00+09:00",
+          updatedAt: "2026-04-24T10:00:00+09:00"
+        }
+      ]
+    });
+
+    await expect(loadRegistry(tempDir)).resolves.toEqual({
+      projects: [
+        expect.objectContaining({ root: "/repo/a", order: 10 })
+      ],
+      contexts: [
+        expect.objectContaining({ id: "ctx-valid", projectRoot: "/repo/a" })
+      ]
+    });
+  });
 });
