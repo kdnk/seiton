@@ -158,6 +158,28 @@ export function App() {
     });
   }, []);
 
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((!event.metaKey && !event.ctrlKey) || event.key.toLowerCase() !== "o") return;
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void addProjectRoot();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [busy]);
+
   async function refresh() {
     if (!window.seiton) {
       setState(previewState);
@@ -299,7 +321,7 @@ export function App() {
           <div className="actions">
             <button onClick={refresh} disabled={busy}>Reload</button>
             <button onClick={addProjectRoot} disabled={busy || !window.seiton}>
-              Add root
+              Add project
             </button>
             <button className="primary" onClick={sync} disabled={busy || !window.seiton}>
               Apply

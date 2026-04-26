@@ -14,7 +14,7 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Add root" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add project" })).toBeInTheDocument();
     });
 
     expect(screen.getByText("feat/codex-hook-state")).toBeInTheDocument();
@@ -295,10 +295,42 @@ describe("App", () => {
     } as never;
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Add root" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add project" }));
 
     await waitFor(() => {
       expect(addProjectRoot).toHaveBeenCalled();
+    });
+  });
+
+  it("opens the add project flow with the keyboard shortcut", async () => {
+    const addProjectRoot = vi.fn().mockResolvedValue({
+      projectsWithContexts: [],
+      warnings: []
+    });
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      addProjectRoot,
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn(),
+      onStateUpdated: () => () => {}
+    } as never;
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Add project" });
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+
+    await waitFor(() => {
+      expect(addProjectRoot).toHaveBeenCalledTimes(1);
     });
   });
 
