@@ -205,11 +205,13 @@ export function App() {
   async function focus(context: Context) {
     if (!window.seiton) return;
     await window.seiton.focus(context.projectRoot, context.branchKey, context.primaryPaneId);
+    await refresh();
   }
 
   async function focusPane(context: Context, pane: CodexPane) {
     if (!window.seiton) return;
     await window.seiton.focus(context.projectRoot, context.branchKey, pane.paneId);
+    await refresh();
   }
 
   async function removeOrphan(context: Context) {

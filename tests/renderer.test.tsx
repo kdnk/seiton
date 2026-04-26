@@ -259,11 +259,16 @@ describe("App", () => {
       expect(screen.getByText("codex --full-auto")).toBeInTheDocument();
     });
 
+    expect(refresh).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Working on rename flow")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Focus pane %12" }));
 
     await waitFor(() => {
       expect(focus).toHaveBeenCalledWith("/repo/a", "feature%2Fnotify-ui", "%12");
+    });
+
+    await waitFor(() => {
+      expect(refresh).toHaveBeenCalledTimes(2);
     });
   });
 
