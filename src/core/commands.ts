@@ -515,9 +515,11 @@ function parseKittyTabClients(stdout: string): KittyTabClient[] {
     (osWindow.tabs ?? []).map((tab) => {
       const activeWindow =
         tab.windows?.find((window) => window.is_active) ?? tab.windows?.at(0);
+      const activeWindowPid =
+        activeWindow?.foreground_processes?.[0]?.pid ?? activeWindow?.pid;
       return {
         title: tab.title,
-        activeWindowPid: activeWindow?.foreground_processes?.[0]?.pid ?? activeWindow?.pid
+        ...(activeWindowPid !== undefined ? { activeWindowPid } : {})
       };
     })
   );
@@ -534,7 +536,7 @@ function parseTmuxClients(stdout: string): TmuxClient[] {
       return {
         tty,
         sessionName,
-        pid: Number.isFinite(pid) ? pid : undefined
+        ...(Number.isFinite(pid) ? { pid } : {})
       };
     });
 }
