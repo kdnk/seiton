@@ -105,11 +105,11 @@ Seiton currently supports:
 - orphan cleanup
 - drag-and-drop ordering for projects and contexts
 - Settings panel for CLI command installation
-- Codex pane display per context
+- agent pane display per context
 
 ## Install the `seiton` command
 
-Seiton includes a small CLI used for Codex hooks and shell-based integration.
+Seiton includes a small CLI used for Codex / Claude hooks and shell-based integration.
 
 You can install it from the app:
 
@@ -135,14 +135,14 @@ If you prefer to inspect the built artifact directly, the command source is:
 dist-electron/cli.js
 ```
 
-## Codex integration
+## Agent integration
 
-Seiton supports Codex status updates through tmux pane options.
+Seiton supports Codex and Claude status updates through tmux pane options.
 
 The intended flow is:
 
 ```text
-Codex hook -> seiton hook codex <event> -> tmux pane options -> Seiton UI polling
+Agent hook -> seiton hook <agent> <event> -> tmux pane options -> Seiton UI polling
 ```
 
 ### Supported Codex events
@@ -157,6 +157,16 @@ These map to:
 - `user-prompt-submit`
 - `stop`
 
+### Supported Claude events
+
+- `SessionStart`
+- `UserPromptSubmit`
+- `Notification`
+- `Stop`
+- `StopFailure`
+- `PostToolUse`
+- `SessionEnd`
+
 ### tmux pane options used by Seiton
 
 Seiton writes and reads these pane options:
@@ -169,7 +179,7 @@ Seiton writes and reads these pane options:
 - `@seiton_attention`
 - `@seiton_wait_reason`
 
-At the moment, Codex support uses:
+The current pane status values are:
 
 - `idle`
 - `running`
@@ -297,6 +307,28 @@ This matches the current runtime behavior discussed in `openai/codex` issues:
 
 If Codex hook behavior changes upstream, update the config example accordingly.
 
+### Claude hook commands
+
+Claude hooks call the same CLI entrypoint with `claude` as the agent name:
+
+```text
+seiton hook claude session-start
+seiton hook claude user-prompt-submit
+seiton hook claude notification
+seiton hook claude stop
+seiton hook claude stop-failure
+seiton hook claude post-tool-use
+seiton hook claude session-end
+```
+
+### Manual notifications
+
+Use `seiton notify` inside a tmux pane when you need to raise a waiting state manually:
+
+```bash
+seiton notify "implementation finished"
+```
+
 ## Operational notes
 
 - If `but status -fv` reports `Setup required: No GitButler project found`, Seiton runs `but setup` and retries automatically.
@@ -308,8 +340,7 @@ If Codex hook behavior changes upstream, update the config example accordingly.
 ## Limitations
 
 - The app is currently optimized for `kitty + tmux + GitButler`.
-- Codex activity uses tmux pane options first, then falls back to pane inspection when needed.
-- Claude hook integration is not implemented yet.
+- Agent activity uses tmux pane options first, then falls back to pane inspection for Codex panes when needed.
 - Notification history is not persisted yet.
 - Browser-only Vite mode is not a supported operational mode.
 
