@@ -796,6 +796,34 @@ describe("renaming managed contexts", () => {
     ]);
   });
 
+  it("renames kitty tab by id when the original tab id is known", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      return { stdout: "", stderr: "" };
+    };
+
+    await renameManagedContext(
+      {
+        projectRoot: "/repo/a",
+        branchId: "ab",
+        oldBranch: "feature/notify-ui",
+        newBranch: "feature/renamed-ui",
+        oldTmuxSession: "s_a_feature%2Fnotify-ui",
+        oldKittyTabTitle: "s_a_feature%2Fnotify-ui",
+        oldKittyTabId: 42
+      },
+      "/repo/a",
+      exec
+    );
+
+    expect(calls[2]).toEqual({
+      file: "kitty",
+      args: ["@", "set-tab-title", "s_a_feature%2Frenamed-ui", "--match", "id:42"],
+      cwd: "/repo/a"
+    });
+  });
+
   it("falls back to old branch name when no branch id is available", async () => {
     const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
     const exec: ExecFunction = async (file, args, cwd) => {

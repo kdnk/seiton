@@ -44,6 +44,7 @@ export type RenameManagedInput = {
   newBranch: string;
   oldTmuxSession: string;
   oldKittyTabTitle: string;
+  oldKittyTabId?: number;
 };
 
 type PaneCandidate = {
@@ -280,9 +281,12 @@ export async function renameManagedContext(
     if (!isMissingTmuxSession(error)) throw error;
   }
   try {
+    const tabMatch = input.oldKittyTabId !== undefined
+      ? `id:${input.oldKittyTabId}`
+      : `title:${input.oldKittyTabTitle}`;
     await run(
       "kitty",
-      ["@", "set-tab-title", nextManagedName, "--match", `title:${input.oldKittyTabTitle}`],
+      ["@", "set-tab-title", nextManagedName, "--match", tabMatch],
       cwd
     );
   } catch (error) {

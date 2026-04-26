@@ -227,7 +227,8 @@ ipcMain.handle(
       oldBranch: payload.oldBranch,
       newBranch: nextBranch,
       oldTmuxSession: payload.oldTmuxSession,
-      oldKittyTabTitle: payload.oldKittyTabTitle
+      oldKittyTabTitle: payload.oldKittyTabTitle,
+      oldKittyTabId: snapshot.kittyTabs.find((tab) => tab.title === payload.oldKittyTabTitle)?.id
     };
     await renameManagedContext(
       payload.branchId ? { ...renameInput, branchId: payload.branchId } : renameInput,
