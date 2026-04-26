@@ -392,9 +392,13 @@ button.primary {
   background: var(--soft);
 }
 
-.status.ready,
-.status.idle {
+.status.ready {
   background: var(--green);
+}
+
+.status.idle {
+  background: #7f8792;
+  color: #0f141a;
 }
 
 .status.running,
