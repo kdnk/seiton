@@ -54,6 +54,17 @@ type PaneCandidate = {
   startCommand: string;
 };
 
+type KittyTabClient = {
+  title: string;
+  activeWindowPid?: number;
+};
+
+type TmuxClient = {
+  tty: string;
+  sessionName: string;
+  pid?: number;
+};
+
 type HookEnvironment = {
   TMUX_PANE?: string;
   PWD?: string;
@@ -228,8 +239,15 @@ export async function focusContext(
     ], cwd);
   }
 
+  const targetClientTty = hasKitty
+    ? await readTargetTmuxClientTtyForKittyTab(title, cwd, run)
+    : undefined;
+
   try {
-    await run("tmux", ["switch-client", "-t", title], cwd);
+    const args = targetClientTty
+      ? ["switch-client", "-c", targetClientTty, "-t", title]
+      : ["switch-client", "-t", title];
+    await run("tmux", args, cwd);
   } catch (error) {
     if (!isNoCurrentTmuxClient(error)) {
       throw error;
@@ -458,6 +476,67 @@ export function parseKittyTabs(stdout: string): KittyTab[] {
       index
     }))
   );
+}
+
+async function readTargetTmuxClientTtyForKittyTab(
+  title: string,
+  cwd: string,
+  run: ExecFunction
+): Promise<string | undefined> {
+  try {
+    const [kittyLs, tmuxClients] = await Promise.all([
+      run("kitty", ["@", "ls"], cwd),
+      run("tmux", ["list-clients", "-F", "#{client_tty}\t#{session_name}\t#{client_pid}"], cwd)
+    ]);
+    const tabClient = parseKittyTabClients(kittyLs.stdout).find((tab) => tab.title === title);
+    if (!tabClient?.activeWindowPid) return undefined;
+    const tmuxClient = parseTmuxClients(tmuxClients.stdout).find(
+      (client) => client.pid === tabClient.activeWindowPid
+    );
+    return tmuxClient?.tty;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseKittyTabClients(stdout: string): KittyTabClient[] {
+  const parsed = JSON.parse(stdout) as Array<{
+    tabs?: Array<{
+      title: string;
+      windows?: Array<{
+        is_active?: boolean;
+        pid?: number;
+        foreground_processes?: Array<{ pid?: number }>;
+      }>;
+    }>;
+  }>;
+
+  return parsed.flatMap((osWindow) =>
+    (osWindow.tabs ?? []).map((tab) => {
+      const activeWindow =
+        tab.windows?.find((window) => window.is_active) ?? tab.windows?.at(0);
+      return {
+        title: tab.title,
+        activeWindowPid: activeWindow?.foreground_processes?.[0]?.pid ?? activeWindow?.pid
+      };
+    })
+  );
+}
+
+function parseTmuxClients(stdout: string): TmuxClient[] {
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [tty = "", sessionName = "", pidText = ""] = line.split("\t");
+      const pid = Number.parseInt(pidText, 10);
+      return {
+        tty,
+        sessionName,
+        pid: Number.isFinite(pid) ? pid : undefined
+      };
+    });
 }
 
 export async function readCodexPanesFromTmuxOptions(
