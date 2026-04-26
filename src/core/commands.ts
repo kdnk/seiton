@@ -664,13 +664,23 @@ function isLiveCodexPane(currentCommand: string, startCommand: string, paneText:
   );
 }
 
-function resolveCodexPaneCommand(currentCommand: string, startCommand: string): string {
+export function resolveCodexPaneCommand(currentCommand: string, startCommand: string): string {
   const command = (startCommand || currentCommand).trim();
   if (!command) return "codex";
   if (command === "node" || command === "bash" || command === "zsh" || command === "fish") {
     return "codex";
   }
-  return command;
+  const parts = command.split(/\s+/).filter(Boolean);
+  while (parts.length > 1) {
+    const tail = parts.at(-1);
+    if (!tail || !looksLikeFilesystemPath(tail)) break;
+    parts.pop();
+  }
+  return parts.join(" ");
+}
+
+function looksLikeFilesystemPath(value: string): boolean {
+  return value.startsWith("/") || value.startsWith("./") || value.startsWith("../") || value.startsWith("~/");
 }
 
 function inferCodexPaneStatus(paneText: string): CodexPane["status"] {

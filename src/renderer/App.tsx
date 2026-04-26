@@ -715,7 +715,6 @@ function ContextRow({
               <strong>{context.branch}</strong>
             )}
           </div>
-          <small>{context.tmuxSession}</small>
           {context.codexPanes.length > 0 ? (
             <div className="codex-pane-list">
               {context.codexPanes.map((pane) => (
@@ -724,18 +723,18 @@ function ContextRow({
                     <span className={`status codex-status ${pane.status}`}>{pane.status}</span>
                     <strong>{pane.command}</strong>
                     <small>{pane.paneId}</small>
+                    <button
+                      className="codex-pane-focus"
+                      disabled={busy}
+                      onClick={() => onFocusPane(pane)}
+                      aria-label={`Focus pane ${pane.paneId}`}
+                    >
+                      Open
+                    </button>
                   </div>
                   <p className="codex-pane-line" title={pane.lastLine}>
                     {pane.lastLine || "No recent output"}
                   </p>
-                  <button
-                    className="codex-pane-focus"
-                    disabled={busy}
-                    onClick={() => onFocusPane(pane)}
-                    aria-label={`Focus pane ${pane.paneId}`}
-                  >
-                    Open
-                  </button>
                 </div>
               ))}
             </div>

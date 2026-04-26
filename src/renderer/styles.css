@@ -64,7 +64,7 @@ button.primary {
 }
 
 .app-shell {
-  max-width: 720px;
+  width: 100%;
   padding: 10px;
 }
 
@@ -97,6 +97,7 @@ button.primary {
 .workspace-frame {
   display: grid;
   gap: 8px;
+  width: 100%;
 }
 
 .panel {
@@ -107,6 +108,7 @@ button.primary {
 .main-content {
   display: grid;
   gap: 8px;
+  width: 100%;
 }
 
 .panel {
@@ -149,10 +151,12 @@ button.primary {
 .context-slot {
   display: grid;
   gap: 0;
+  width: 100%;
 }
 
 .project-section {
   overflow: hidden;
+  width: 100%;
 }
 
 .project-section header {
@@ -243,6 +247,7 @@ button.primary {
 .context-main {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
 .context-head {
@@ -286,7 +291,7 @@ button.primary {
 .codex-pane-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
+  gap: 6px;
   align-items: flex-start;
   padding: 6px 8px;
   border: 1px solid var(--line);
@@ -299,16 +304,24 @@ button.primary {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .codex-pane-main strong {
   font-size: 0.82rem;
   font-weight: 600;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .codex-pane-main small {
   font-size: 0.68rem;
+  color: var(--muted);
+  opacity: 0.72;
+  flex: 0 0 auto;
 }
 
 .codex-pane-line {
@@ -322,9 +335,10 @@ button.primary {
 }
 
 .codex-pane-focus {
-  justify-self: start;
   padding: 0.3rem 0.56rem;
   font-size: 0.74rem;
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 .context-actions {
@@ -548,5 +562,13 @@ button.primary {
 
   .project-header-copy h2 {
     font-size: 0.85rem;
+  }
+
+  .codex-pane-main {
+    flex-wrap: wrap;
+  }
+
+  .codex-pane-focus {
+    margin-left: 0;
   }
 }

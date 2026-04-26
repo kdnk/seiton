@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runCli } from "../src/cli";
+import { runCli, shouldRunCliMain } from "../src/cli";
 import type { Registry } from "../src/core/model";
 
 function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
@@ -23,6 +23,18 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
 }
 
 describe("runCli", () => {
+  it("treats symlinked entrypoints as direct CLI execution", () => {
+    expect(shouldRunCliMain(
+      "/Users/kodai/.local/bin/seiton",
+      "file:///Users/kodai/workspaces/github.com/kdnk/seiton/dist-electron/cli.js",
+      (path) => (
+        path === "/Users/kodai/.local/bin/seiton"
+          ? "/Users/kodai/workspaces/github.com/kdnk/seiton/dist-electron/cli.js"
+          : path
+      )
+    )).toBe(true);
+  });
+
   it("adds the current working directory for seiton open", async () => {
     const { deps, saved, outputs } = createDeps();
 

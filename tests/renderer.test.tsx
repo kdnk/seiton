@@ -261,6 +261,8 @@ describe("App", () => {
 
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Working on rename flow")).toBeInTheDocument();
+    expect(screen.getByText("%12")).toBeInTheDocument();
+    expect(screen.queryByText("s_a_feature%2Fnotify-ui")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Focus pane %12" }));
 
     await waitFor(() => {

@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { stdin } from "node:process";
 import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 import { applyAgentHook } from "./core/commands";
 import { emitLiveUpdate } from "./core/live-updates";
 import { ensureProject, type Registry } from "./core/model";
@@ -117,8 +118,20 @@ async function main(): Promise<void> {
   process.exitCode = exitCode;
 }
 
-const executedPath = process.argv[1];
-if (executedPath && fileURLToPath(import.meta.url) === executedPath) {
+export function shouldRunCliMain(
+  executedPath: string | undefined,
+  moduleUrl: string,
+  resolveRealPath: (path: string) => string = realpathSync
+): boolean {
+  if (!executedPath) return false;
+  try {
+    return resolveRealPath(executedPath) === resolveRealPath(fileURLToPath(moduleUrl));
+  } catch {
+    return fileURLToPath(moduleUrl) === executedPath;
+  }
+}
+
+if (shouldRunCliMain(process.argv[1], import.meta.url)) {
   void main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

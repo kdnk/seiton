@@ -22,6 +22,7 @@ import {
   removeOrphanContext,
   renameManagedContext,
   readBranchesForProject,
+  resolveCodexPaneCommand,
   type ExecFunction
 } from "../src/core/commands";
 
@@ -504,6 +505,15 @@ describe("GitButler parsing", () => {
         cwd: "/repo/a"
       }
     ]);
+  });
+});
+
+describe("codex pane command labels", () => {
+  it("drops cwd-style path arguments from the displayed agent command", () => {
+    expect(resolveCodexPaneCommand(
+      "codex",
+      "codex --model gpt-5 /Users/kodai/workspaces/github.com/kdnk/seiton"
+    )).toBe("codex --model gpt-5");
   });
 });
 
