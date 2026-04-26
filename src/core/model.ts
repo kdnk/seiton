@@ -52,14 +52,21 @@ export type ContextStatus =
   | "rename_conflict"
   | "error";
 
-export type CodexPaneStatus = "running" | "idle" | "waiting" | "error";
+export type AgentName = "codex" | "claude";
 
-export type CodexPane = {
+export type AgentPaneStatus = "running" | "idle" | "waiting" | "error";
+
+export type AgentPane = {
+  agent: AgentName;
   paneId: string;
   command: string;
   lastLine: string;
-  status: CodexPaneStatus;
+  status: AgentPaneStatus;
 };
+
+export type CodexPaneStatus = AgentPaneStatus;
+
+export type CodexPane = AgentPane;
 
 export type Context = {
   id: string;
@@ -71,7 +78,7 @@ export type Context = {
   tmuxSession: string;
   kittyTabTitle: string;
   primaryPaneId?: string;
-  codexPanes: CodexPane[];
+  agentPanes: AgentPane[];
   order: number;
   status: ContextStatus;
 };
@@ -81,7 +88,7 @@ export type SyncInput = {
   branches: Branch[];
   tmuxSessions: string[];
   kittyTabs: KittyTab[];
-  codexPanesBySession: Record<string, CodexPane[]>;
+  agentPanesBySession: Record<string, AgentPane[]>;
   registry: Registry;
 };
 
@@ -252,7 +259,7 @@ export function detectAllContexts(
     projects: Record<string, { branches: Branch[]; warnings: string[] }>;
     tmuxSessions: string[];
     kittyTabs: KittyTab[];
-    codexPanesBySession: Record<string, CodexPane[]>;
+    agentPanesBySession: Record<string, AgentPane[]>;
   }
 ): ProjectContexts[] {
   const projects = registry.projects ?? [];
@@ -268,7 +275,7 @@ export function detectAllContexts(
         branches: projectSnapshot.branches,
         tmuxSessions: snapshot.tmuxSessions,
         kittyTabs: snapshot.kittyTabs,
-        codexPanesBySession: snapshot.codexPanesBySession,
+        agentPanesBySession: snapshot.agentPanesBySession,
         registry
       });
       return { project, contexts, warnings: projectSnapshot.warnings };
@@ -293,7 +300,7 @@ export function detectContexts(input: SyncInput): Context[] {
       branchKey,
       tmuxSession,
       kittyTabTitle,
-      codexPanes: input.codexPanesBySession[tmuxSession] ?? [],
+      agentPanes: input.agentPanesBySession[tmuxSession] ?? [],
       order: existing?.order ?? nextOrder(scopedRegistry),
       status: statusForPresence(hasTmux, hasKitty)
     };
@@ -319,7 +326,7 @@ export function detectContexts(input: SyncInput): Context[] {
       branchKey: buildBranchKey(branch),
       tmuxSession: session,
       kittyTabTitle: session,
-      codexPanes: input.codexPanesBySession[session] ?? [],
+      agentPanes: input.agentPanesBySession[session] ?? [],
       order: existing?.order ?? Number.MAX_SAFE_INTEGER,
       status: "orphan_tmux"
     };

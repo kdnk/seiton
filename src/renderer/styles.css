@@ -291,13 +291,13 @@ button.primary {
   border-color: #45618f;
 }
 
-.codex-pane-list {
+.agent-pane-list {
   display: grid;
   gap: 6px;
   padding-left: 2px;
 }
 
-.codex-pane-row {
+.agent-pane-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
@@ -308,7 +308,7 @@ button.primary {
   background: var(--panel-3);
 }
 
-.codex-pane-main {
+.agent-pane-main {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -316,7 +316,7 @@ button.primary {
   flex-wrap: nowrap;
 }
 
-.codex-pane-main strong {
+.agent-pane-main strong {
   font-size: 0.82rem;
   font-weight: 600;
   min-width: 0;
@@ -326,14 +326,22 @@ button.primary {
   white-space: nowrap;
 }
 
-.codex-pane-main small {
+.agent-pane-main small {
   font-size: 0.68rem;
   color: var(--muted);
   opacity: 0.72;
   flex: 0 0 auto;
 }
 
-.codex-pane-line {
+.agent-pane-badge {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.agent-pane-line {
   margin: 0;
   min-width: 0;
   color: var(--muted);
@@ -343,7 +351,7 @@ button.primary {
   font-size: 0.75rem;
 }
 
-.codex-pane-focus {
+.agent-pane-focus {
   padding: 0.3rem 0.56rem;
   font-size: 0.74rem;
   margin-left: auto;
@@ -589,11 +597,11 @@ button.primary {
     font-size: 0.85rem;
   }
 
-  .codex-pane-main {
+  .agent-pane-main {
     flex-wrap: wrap;
   }
 
-  .codex-pane-focus {
+  .agent-pane-focus {
     margin-left: 0;
   }
 }

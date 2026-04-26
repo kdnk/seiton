@@ -11,6 +11,7 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
     platform: "darwin",
     readStdin: vi.fn().mockResolvedValue(""),
     applyAgentHook: vi.fn().mockResolvedValue(undefined),
+    notifyCurrentPane: vi.fn().mockResolvedValue(undefined),
     loadRegistry: vi.fn().mockResolvedValue({ projects: [], contexts: [] }),
     saveRegistry: vi.fn().mockImplementation(async (appDataDir, registry) => {
       saved.push({ appDataDir, registry });
@@ -118,6 +119,18 @@ describe("runCli", () => {
     );
   });
 
+  it("accepts seiton notify and routes it into pane state", async () => {
+    const notifyCurrentPane = vi.fn().mockResolvedValue(undefined);
+    const { deps } = createDeps({
+      notifyCurrentPane
+    });
+
+    const exitCode = await runCli(["node", "seiton", "notify", "implementation", "finished"], deps);
+
+    expect(exitCode).toBe(0);
+    expect(notifyCurrentPane).toHaveBeenCalledWith("implementation finished", deps.env, "/repo/a");
+  });
+
   it("prints usage for unsupported commands", async () => {
     const { deps, outputs } = createDeps();
 
@@ -125,6 +138,7 @@ describe("runCli", () => {
 
     expect(exitCode).toBe(1);
     expect(outputs.stderr.join("")).toContain("Usage: seiton hook <agent> <event>");
+    expect(outputs.stderr.join("")).toContain("Usage: seiton notify <message>");
     expect(outputs.stderr.join("")).toContain("Usage: seiton open");
   });
 });

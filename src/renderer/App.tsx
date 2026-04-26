@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { DndProvider, useDrag, useDragLayer, useDrop } from "react-dnd";
 import { getEmptyImage, HTML5Backend } from "react-dnd-html5-backend";
 import type { CliCommandStatus } from "../../electron/preload";
-import type { CodexPane, Context, ProjectContexts } from "../core/model";
+import type { AgentPane, Context, ProjectContexts } from "../core/model";
 import "./styles.css";
 
 type ViewState = {
@@ -46,8 +46,9 @@ const previewState: ViewState = {
           branchKey: "feat%2Fcodex-hook-state",
           tmuxSession: "s_seiton_feat%2Fcodex-hook-state",
           kittyTabTitle: "s_seiton_feat%2Fcodex-hook-state",
-          codexPanes: [
+          agentPanes: [
             {
+              agent: "codex",
               paneId: "%12",
               command: "codex",
               lastLine: "Reviewing hook state adapter",
@@ -65,8 +66,9 @@ const previewState: ViewState = {
           branchKey: "chore%2Freadme-refresh",
           tmuxSession: "s_seiton_chore%2Freadme-refresh",
           kittyTabTitle: "s_seiton_chore%2Freadme-refresh",
-          codexPanes: [
+          agentPanes: [
             {
+              agent: "codex",
               paneId: "%18",
               command: "codex",
               lastLine: "Update CLI install docs",
@@ -95,8 +97,9 @@ const previewState: ViewState = {
           branchKey: "seiton-parser-test",
           tmuxSession: "s_gbp_seiton-parser-test",
           kittyTabTitle: "s_gbp_seiton-parser-test",
-          codexPanes: [
+          agentPanes: [
             {
+              agent: "codex",
               paneId: "%21",
               command: "codex",
               lastLine: "Needs review on parser output",
@@ -230,7 +233,7 @@ export function App() {
     await refresh();
   }
 
-  async function focusPane(context: Context, pane: CodexPane) {
+  async function focusPane(context: Context, pane: AgentPane) {
     if (!window.seiton) return;
     await window.seiton.focus(context.projectRoot, context.branchKey, pane.paneId);
     await refresh();
@@ -450,7 +453,7 @@ function ProjectSection({
   onMoveProject: (from: number, to: number) => void;
   onMoveContext: (projectRoot: string, from: number, to: number) => void;
   onFocus: (context: Context) => void;
-  onFocusPane: (context: Context, pane: CodexPane) => void;
+  onFocusPane: (context: Context, pane: AgentPane) => void;
   onRename: (context: Context, newBranch: string) => void;
   onRemoveOrphan: (context: Context) => void;
   onRemoveProjectRoot: (root: string) => void;
@@ -593,7 +596,7 @@ function ContextRow({
   index: number;
   busy: boolean;
   onFocus: () => void;
-  onFocusPane: (pane: CodexPane) => void;
+  onFocusPane: (pane: AgentPane) => void;
   onRename: (newBranch: string) => void;
   onRemoveOrphan: () => void;
   onMove: (from: number, to: number) => void;
@@ -751,16 +754,17 @@ function ContextRow({
               ) : null}
             </div>
           </div>
-          {context.codexPanes.length > 0 ? (
-            <div className="codex-pane-list">
-              {context.codexPanes.map((pane) => (
-                <div key={pane.paneId} className="codex-pane-row">
-                  <div className="codex-pane-main">
+          {context.agentPanes.length > 0 ? (
+            <div className="agent-pane-list">
+              {context.agentPanes.map((pane) => (
+                <div key={pane.paneId} className="agent-pane-row">
+                  <div className="agent-pane-main">
+                    <span className="agent-pane-badge">{pane.agent}</span>
                     <span className={`status codex-status ${pane.status}`}>{pane.status}</span>
                     <strong>{pane.command}</strong>
                     <small>{pane.paneId}</small>
                     <button
-                      className="codex-pane-focus"
+                      className="agent-pane-focus"
                       disabled={busy}
                       onClick={() => onFocusPane(pane)}
                       aria-label={`Focus pane ${pane.paneId}`}
@@ -768,7 +772,7 @@ function ContextRow({
                       Open
                     </button>
                   </div>
-                  <p className="codex-pane-line" title={pane.lastLine}>
+                  <p className="agent-pane-line" title={pane.lastLine}>
                     {pane.lastLine || "No recent output"}
                   </p>
                 </div>

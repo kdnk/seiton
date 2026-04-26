@@ -17,12 +17,12 @@ import {
   applyAgentHook,
   parseButBranches,
   parseTmuxCodexPanes,
-  readCodexPanesFromTmuxOptions,
+  readAgentPanesFromTmuxOptions,
   focusContext,
   removeOrphanContext,
   renameManagedContext,
   readBranchesForProject,
-  resolveCodexPaneCommand,
+  resolveAgentPaneCommand,
   type ExecFunction
 } from "../src/core/commands";
 
@@ -182,6 +182,35 @@ describe("project registry", () => {
 });
 
 describe("context detection", () => {
+  it("detects claude panes from agent-backed session state", () => {
+    const contexts = detectContexts({
+      projectRoot: "/repo/a",
+      branches: [{ name: "feature/claude-notify" }],
+      tmuxSessions: ["s_a_feature%2Fclaude-notify"],
+      kittyTabs: [{ id: 1, title: "s_a_feature%2Fclaude-notify", osWindowId: 100, index: 0 }],
+      agentPanesBySession: {
+        "s_a_feature%2Fclaude-notify": [
+          {
+            agent: "claude",
+            paneId: "%21",
+            command: "claude",
+            lastLine: "Need confirmation before deploy",
+            status: "waiting"
+          }
+        ]
+      },
+      registry: { projects: [], contexts: [] }
+    });
+
+    expect(contexts[0]?.agentPanes).toEqual([
+      expect.objectContaining({
+        agent: "claude",
+        paneId: "%21",
+        status: "waiting"
+      })
+    ]);
+  });
+
   it("marks GitButler branches with tmux and Kitty resources as ready", () => {
     const contexts = detectContexts({
       projectRoot: "/repo/a",
@@ -190,7 +219,7 @@ describe("context detection", () => {
       kittyTabs: [
         { id: 1, title: "s_a_feature%2Fnotify-ui", osWindowId: 100, index: 0 }
       ],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry
     });
 
@@ -209,7 +238,7 @@ describe("context detection", () => {
       branches: [],
       tmuxSessions: ["s_a_feature%2Fnotify-ui"],
       kittyTabs: [],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry
     });
 
@@ -227,7 +256,7 @@ describe("context detection", () => {
       branches: [],
       tmuxSessions: ["seiton__%2Frepo%2Fa__feature%2Fnotify-ui"],
       kittyTabs: [],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry
     });
 
@@ -247,7 +276,7 @@ describe("context detection", () => {
       kittyTabs: [
         { id: 1, title: "s_a_feature%2Fnotify-ui", osWindowId: 100, index: 0 }
       ],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry
     });
 
@@ -393,12 +422,14 @@ describe("GitButler parsing", () => {
     expect(result).toEqual({
       "s_a_feature%2Fnotify-ui": [
         {
+          agent: "codex",
           paneId: "%12",
           command: "codex",
           lastLine: "Working on rename flow",
           status: "running"
         },
         {
+          agent: "codex",
           paneId: "%9",
           command: "codex",
           lastLine: "Waiting for input",
@@ -424,7 +455,7 @@ describe("GitButler parsing", () => {
       throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
     };
 
-    const result = await readCodexPanesFromTmuxOptions(
+    const result = await readAgentPanesFromTmuxOptions(
       "s_a_feature%2Fnotify-ui\t%12\tnode\t",
       "/repo/a",
       exec
@@ -433,6 +464,7 @@ describe("GitButler parsing", () => {
     expect(result).toEqual({
       "s_a_feature%2Fnotify-ui": [
         {
+          agent: "codex",
           paneId: "%12",
           command: "codex",
           lastLine: "needs review",
@@ -456,8 +488,64 @@ describe("GitButler parsing", () => {
       throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
     };
 
-    const result = await readCodexPanesFromTmuxOptions(
+    const result = await readAgentPanesFromTmuxOptions(
       "s_a_feature%2Fnotify-ui\t%12\tfish\t",
+      "/repo/a",
+      exec
+    );
+
+    expect(result).toEqual({});
+  });
+
+  it("reads a claude pane from tmux options", async () => {
+    const exec: ExecFunction = async (file, args) => {
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_agent") {
+        return { stdout: "claude\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_status") {
+        return { stdout: "waiting\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_prompt") {
+        return { stdout: "Need approval to continue\n", stderr: "" };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    const result = await readAgentPanesFromTmuxOptions(
+      "s_a_feature%2Fclaude-notify\t%21\tclaude\tclaude\n",
+      "/repo/a",
+      exec
+    );
+
+    expect(result).toEqual({
+      "s_a_feature%2Fclaude-notify": [
+        {
+          agent: "claude",
+          paneId: "%21",
+          command: "claude",
+          lastLine: "Need approval to continue",
+          status: "waiting"
+        }
+      ]
+    });
+  });
+
+  it("ignores stale claude pane options after claude exits", async () => {
+    const exec: ExecFunction = async (file, args) => {
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_agent") {
+        return { stdout: "claude\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_status") {
+        return { stdout: "idle\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_prompt") {
+        return { stdout: "stale\n", stderr: "" };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    const result = await readAgentPanesFromTmuxOptions(
+      "s_a_feature%2Fclaude-notify\t%21\tfish\tfish\n",
       "/repo/a",
       exec
     );
@@ -531,11 +619,74 @@ describe("GitButler parsing", () => {
       }
     ]);
   });
+
+  it("writes claude notification events into tmux pane options", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const notifications: Array<{ agent: string; event: string; paneId: string; cwd?: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      return { stdout: "", stderr: "" };
+    };
+
+    await applyAgentHook(
+      "claude",
+      "Notification",
+      JSON.stringify({ message: "Need approval to continue", cwd: "/repo/a" }),
+      { TMUX_PANE: "%21", PWD: "/repo/a" },
+      "/repo/a",
+      exec,
+      async (payload) => {
+        notifications.push(payload);
+      }
+    );
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_agent", "claude"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_status", "waiting"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_prompt", "Need approval to continue"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_cwd", "/repo/a"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_attention", "notification"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["set-option", "-p", "-t", "%21", "@seiton_wait_reason", "notification"],
+        cwd: "/repo/a"
+      }
+    ]);
+    expect(notifications).toEqual([
+      {
+        agent: "claude",
+        event: "notification",
+        paneId: "%21",
+        cwd: "/repo/a"
+      }
+    ]);
+  });
 });
 
 describe("codex pane command labels", () => {
   it("drops cwd-style path arguments from the displayed agent command", () => {
-    expect(resolveCodexPaneCommand(
+    expect(resolveAgentPaneCommand(
+      "codex",
       "codex",
       "codex --model gpt-5 /Users/kodai/workspaces/github.com/kdnk/seiton"
     )).toBe("codex --model gpt-5");
@@ -1043,7 +1194,7 @@ describe("sync planning", () => {
       branches: [{ name: "feature/notify-ui" }],
       tmuxSessions: [],
       kittyTabs: [],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry
     });
 
@@ -1070,7 +1221,7 @@ describe("sync planning", () => {
       kittyTabs: [
         { id: 1, title: "s_a_feature%2Fold-name", osWindowId: 100, index: 0 }
       ],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry: {
         contexts: [
           {
@@ -1117,7 +1268,7 @@ describe("Kitty order planning", () => {
       projectRoot: "/repo/a",
       branches,
       tmuxSessions: [],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry: {
         contexts: [
           contextFixture({ branch: "feature/c", branchKey: "feature%2Fc", order: 10 }),
@@ -1146,7 +1297,7 @@ describe("Kitty order planning", () => {
       projectRoot: "/repo/a",
       branches: [{ name: "feature/a" }, { name: "feature/b" }],
       tmuxSessions: [],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry: {
         contexts: [
           contextFixture({ branch: "feature/b", branchKey: "feature%2Fb", order: 10 }),

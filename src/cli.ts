@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { stdin } from "node:process";
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
-import { applyAgentHook } from "./core/commands";
+import { applyAgentHook, notifyCurrentPane } from "./core/commands";
 import { emitLiveUpdate } from "./core/live-updates";
 import { ensureProject, type Registry } from "./core/model";
 import { loadRegistry, saveRegistry } from "./core/registry";
@@ -14,6 +14,7 @@ export type CliDeps = {
   platform: NodeJS.Platform;
   readStdin: () => Promise<string>;
   applyAgentHook: typeof applyAgentHook;
+  notifyCurrentPane: typeof notifyCurrentPane;
   loadRegistry: typeof loadRegistry;
   saveRegistry: typeof saveRegistry;
   emitLiveUpdate: typeof emitLiveUpdate;
@@ -21,7 +22,7 @@ export type CliDeps = {
   stderr: { write: (chunk: string) => unknown };
 };
 
-const usage = ["Usage: seiton hook <agent> <event>", "Usage: seiton open"].join("\n");
+const usage = ["Usage: seiton hook <agent> <event>", "Usage: seiton notify <message>", "Usage: seiton open"].join("\n");
 
 export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   const [, , command, agent, event] = argv;
@@ -29,6 +30,12 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   if (command === "hook" && agent && event) {
     const input = await deps.readStdin();
     await deps.applyAgentHook(agent, event, input, deps.env, deps.cwd);
+    return 0;
+  }
+
+  if (command === "notify" && argv.length > 3) {
+    const message = argv.slice(3).join(" ").trim();
+    await deps.notifyCurrentPane(message, deps.env, deps.cwd);
     return 0;
   }
 
@@ -113,6 +120,7 @@ async function main(): Promise<void> {
     platform: process.platform,
     readStdin,
     applyAgentHook,
+    notifyCurrentPane,
     loadRegistry,
     saveRegistry,
     emitLiveUpdate,

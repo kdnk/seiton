@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { appendActivityLog } from "./activity-log";
 import { emitLiveUpdate } from "./live-updates";
-import { buildManagedName, type Branch, type CodexPane, type KittyTab, type SyncCommand } from "./model";
+import { buildManagedName, type AgentName, type AgentPane, type Branch, type KittyTab, type SyncCommand } from "./model";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +20,7 @@ export type SystemSnapshot = {
   branches: Branch[];
   tmuxSessions: string[];
   kittyTabs: KittyTab[];
-  codexPanesBySession: Record<string, CodexPane[]>;
+  agentPanesBySession: Record<string, AgentPane[]>;
   warnings: string[];
 };
 
@@ -27,7 +28,7 @@ export type FullSystemSnapshot = {
   projects: Record<string, { branches: Branch[]; warnings: string[] }>;
   tmuxSessions: string[];
   kittyTabs: KittyTab[];
-  codexPanesBySession: Record<string, CodexPane[]>;
+  agentPanesBySession: Record<string, AgentPane[]>;
   globalWarnings: string[];
 };
 
@@ -65,7 +66,7 @@ type TmuxClient = {
   pid?: number;
 };
 
-type HookEnvironment = {
+export type HookEnvironment = {
   TMUX_PANE?: string;
   PWD?: string;
 };
@@ -82,10 +83,10 @@ export async function readSystemSnapshot(): Promise<SystemSnapshot> {
 }
 
 export async function readFullSystemSnapshot(projectRoots: string[]): Promise<FullSystemSnapshot> {
-  const [tmuxSessions, kittyTabs, codexPanesBySession] = await Promise.all([
+  const [tmuxSessions, kittyTabs, agentPanesBySession] = await Promise.all([
     readTmuxSessions(process.cwd()),
     readKittyTabs(process.cwd()),
-    readCodexPanes(process.cwd())
+    readAgentPanes(process.cwd())
   ]);
 
   const projectResults = await Promise.all(
@@ -108,29 +109,29 @@ export async function readFullSystemSnapshot(projectRoots: string[]): Promise<Fu
     projects,
     tmuxSessions: tmuxSessions.value,
     kittyTabs: kittyTabs.value,
-    codexPanesBySession: codexPanesBySession.value,
-    globalWarnings: [tmuxSessions, kittyTabs, codexPanesBySession]
+    agentPanesBySession: agentPanesBySession.value,
+    globalWarnings: [tmuxSessions, kittyTabs, agentPanesBySession]
       .flatMap((result) => result.warnings ?? [])
-      .concat([tmuxSessions, kittyTabs, codexPanesBySession].flatMap((result) => (result.ok ? [] : [result.error])))
+      .concat([tmuxSessions, kittyTabs, agentPanesBySession].flatMap((result) => (result.ok ? [] : [result.error])))
   };
 }
 
 export async function readSystemSnapshotForCwd(cwd: string): Promise<SystemSnapshot> {
-  const [branches, tmuxSessions, kittyTabs, codexPanesBySession] = await Promise.all([
+  const [branches, tmuxSessions, kittyTabs, agentPanesBySession] = await Promise.all([
     readBranches(cwd),
     readTmuxSessions(cwd),
     readKittyTabs(cwd),
-    readCodexPanes(cwd)
+    readAgentPanes(cwd)
   ]);
 
   return {
     branches: branches.value,
     tmuxSessions: tmuxSessions.value,
     kittyTabs: kittyTabs.value,
-    codexPanesBySession: codexPanesBySession.value,
-    warnings: [branches, tmuxSessions, kittyTabs, codexPanesBySession]
+    agentPanesBySession: agentPanesBySession.value,
+    warnings: [branches, tmuxSessions, kittyTabs, agentPanesBySession]
       .flatMap((result) => result.warnings ?? [])
-      .concat([branches, tmuxSessions, kittyTabs, codexPanesBySession].flatMap((result) => result.ok ? [] : [result.error]))
+      .concat([branches, tmuxSessions, kittyTabs, agentPanesBySession].flatMap((result) => result.ok ? [] : [result.error]))
   };
 }
 
@@ -332,19 +333,49 @@ export async function applyAgentHook(
   const hookInput: { cwd?: string; prompt?: string } = {};
   if (cwdValue) hookInput.cwd = cwdValue;
   if (prompt) hookInput.prompt = prompt;
+  const normalizedEvent = normalizeHookEvent(agent, event);
 
   if (agent === "codex") {
-    await applyCodexHook(event, paneId, hookInput, cwd, run);
-    await notify({
-      agent,
-      event,
-      paneId,
-      ...(cwdValue ? { cwd: cwdValue } : {})
-    });
-    return;
+    await applyCodexHook(normalizedEvent, paneId, hookInput, cwd, run);
+  } else if (agent === "claude") {
+    await applyClaudeHook(normalizedEvent, paneId, hookInput, cwd, run);
+  } else {
+    throw new Error(`Unsupported agent: ${agent}`);
   }
 
-  throw new Error(`Unsupported agent: ${agent}`);
+  await notify({
+    agent,
+    event: normalizedEvent,
+    paneId,
+    ...(cwdValue ? { cwd: cwdValue } : {})
+  });
+}
+
+export async function notifyCurrentPane(
+  message: string,
+  env: HookEnvironment,
+  cwd = process.cwd(),
+  run: ExecFunction = exec
+): Promise<void> {
+  const paneId = env.TMUX_PANE?.trim();
+  if (!paneId) {
+    throw new Error("TMUX_PANE is required");
+  }
+
+  await writePaneOptions(
+    paneId,
+    {
+      "@seiton_status": "waiting",
+      "@seiton_prompt": message,
+      "@seiton_cwd": env.PWD?.trim() ?? cwd,
+      "@seiton_attention": "notification",
+      "@seiton_wait_reason": "notification"
+    },
+    cwd,
+    run
+  );
+
+  await appendActivityLog(paneId, message);
 }
 
 async function readBranches(cwd: string): Promise<CommandResult<Branch[]>> {
@@ -413,7 +444,7 @@ async function readKittyTabs(cwd: string): Promise<CommandResult<KittyTab[]>> {
   }
 }
 
-async function readCodexPanes(cwd: string): Promise<CommandResult<Record<string, CodexPane[]>>> {
+async function readAgentPanes(cwd: string): Promise<CommandResult<Record<string, AgentPane[]>>> {
   try {
     const { stdout } = await exec("tmux", [
       "list-panes",
@@ -421,9 +452,9 @@ async function readCodexPanes(cwd: string): Promise<CommandResult<Record<string,
       "-F",
       "#{session_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_start_command}"
     ], cwd);
-    const optionBacked = await readCodexPanesFromTmuxOptions(stdout, cwd, exec);
+    const optionBacked = await readAgentPanesFromTmuxOptions(stdout, cwd, exec);
     const fallback = await parseTmuxCodexPanes(stdout, cwd, exec);
-    return { ok: true, value: mergeCodexPaneMaps(optionBacked, fallback) };
+    return { ok: true, value: mergeAgentPaneMaps(optionBacked, fallback) };
   } catch (error) {
     return {
       ok: false,
@@ -542,37 +573,33 @@ function parseTmuxClients(stdout: string): TmuxClient[] {
     });
 }
 
-export async function readCodexPanesFromTmuxOptions(
+export async function readAgentPanesFromTmuxOptions(
   stdout: string,
   cwd: string,
   run: ExecFunction
-): Promise<Record<string, CodexPane[]>> {
+): Promise<Record<string, AgentPane[]>> {
   const paneCandidates = parsePaneCandidates(stdout);
-  const result: Record<string, CodexPane[]> = {};
+  const result: Record<string, AgentPane[]> = {};
 
   for (const pane of paneCandidates) {
-    const entry = await readCodexPaneFromTmuxOptions(pane, cwd, run);
+    const entry = await readAgentPaneFromTmuxOptions(pane, cwd, run);
     if (!entry) continue;
     const existing = result[pane.sessionName] ?? [];
     existing.push(entry);
     result[pane.sessionName] = existing;
   }
 
-  for (const sessionName of Object.keys(result)) {
-    result[sessionName] = result[sessionName]!.sort((a, b) => a.paneId.localeCompare(b.paneId));
-  }
-
-  return result;
+  return sortPaneMap(result);
 }
 
 export async function parseTmuxCodexPanes(
   stdout: string,
   cwd: string,
   run: ExecFunction
-): Promise<Record<string, CodexPane[]>> {
+): Promise<Record<string, AgentPane[]>> {
   const paneCandidates = parsePaneCandidates(stdout);
 
-  const result: Record<string, CodexPane[]> = {};
+  const result: Record<string, AgentPane[]> = {};
   for (const pane of paneCandidates) {
     const snapshot = await readPaneSnapshot(pane.paneId, cwd, run);
     if (!isCodexPane(pane.currentCommand, pane.startCommand, snapshot.fullText)) {
@@ -581,9 +608,10 @@ export async function parseTmuxCodexPanes(
     if (!isLiveCodexPane(pane.currentCommand, pane.startCommand, snapshot.fullText)) {
       continue;
     }
-    const entry: CodexPane = {
+    const entry: AgentPane = {
+      agent: "codex",
       paneId: pane.paneId,
-      command: resolveCodexPaneCommand(pane.currentCommand, pane.startCommand),
+      command: resolveAgentPaneCommand("codex", pane.currentCommand, pane.startCommand),
       lastLine: snapshot.lastLine,
       status: inferCodexPaneStatus(snapshot.fullText)
     };
@@ -592,11 +620,7 @@ export async function parseTmuxCodexPanes(
     result[pane.sessionName] = existing;
   }
 
-  for (const sessionName of Object.keys(result)) {
-    result[sessionName] = result[sessionName]!.sort((a, b) => a.paneId.localeCompare(b.paneId));
-  }
-
-  return result;
+  return sortPaneMap(result);
 }
 
 function parsePaneCandidates(stdout: string): PaneCandidate[] {
@@ -610,15 +634,15 @@ function parsePaneCandidates(stdout: string): PaneCandidate[] {
     });
 }
 
-function mergeCodexPaneMaps(
-  primary: Record<string, CodexPane[]>,
-  secondary: Record<string, CodexPane[]>
-): Record<string, CodexPane[]> {
-  const merged: Record<string, CodexPane[]> = {};
+function mergeAgentPaneMaps(
+  primary: Record<string, AgentPane[]>,
+  secondary: Record<string, AgentPane[]>
+): Record<string, AgentPane[]> {
+  const merged: Record<string, AgentPane[]> = {};
   const sessionNames = new Set([...Object.keys(primary), ...Object.keys(secondary)]);
 
   for (const sessionName of sessionNames) {
-    const byPaneId = new Map<string, CodexPane>();
+    const byPaneId = new Map<string, AgentPane>();
     for (const pane of secondary[sessionName] ?? []) byPaneId.set(pane.paneId, pane);
     for (const pane of primary[sessionName] ?? []) byPaneId.set(pane.paneId, pane);
     const values = [...byPaneId.values()].sort((a, b) => a.paneId.localeCompare(b.paneId));
@@ -626,6 +650,13 @@ function mergeCodexPaneMaps(
   }
 
   return merged;
+}
+
+function sortPaneMap(result: Record<string, AgentPane[]>): Record<string, AgentPane[]> {
+  for (const sessionName of Object.keys(result)) {
+    result[sessionName] = result[sessionName]!.sort((a, b) => a.paneId.localeCompare(b.paneId));
+  }
+  return result;
 }
 
 async function exec(
@@ -671,14 +702,14 @@ async function readPaneWindowId(
   }
 }
 
-async function readCodexPaneFromTmuxOptions(
+async function readAgentPaneFromTmuxOptions(
   pane: PaneCandidate,
   cwd: string,
   run: ExecFunction
-): Promise<CodexPane | undefined> {
+): Promise<AgentPane | undefined> {
   const agent = await readPaneOption(pane.paneId, "@seiton_agent", cwd, run);
-  if (agent !== "codex") return undefined;
-  if (!isCodexRuntimeActive(pane.currentCommand, pane.startCommand)) {
+  if (agent !== "codex" && agent !== "claude") return undefined;
+  if (!isAgentRuntimeActive(agent, pane.currentCommand, pane.startCommand)) {
     return undefined;
   }
 
@@ -690,10 +721,11 @@ async function readCodexPaneFromTmuxOptions(
   const fallbackLine = prompt ? "" : (await readPaneSnapshot(pane.paneId, cwd, run)).lastLine;
 
   return {
+    agent,
     paneId: pane.paneId,
-    command: "codex",
+    command: resolveAgentPaneCommand(agent, pane.currentCommand, pane.startCommand),
     lastLine: prompt || fallbackLine,
-    status: normalizeCodexPaneStatus(status)
+    status: normalizeAgentPaneStatus(status)
   };
 }
 
@@ -732,6 +764,17 @@ function isCodexRuntimeActive(currentCommand: string, startCommand: string): boo
   return current === "node";
 }
 
+function isClaudeRuntimeActive(currentCommand: string, startCommand: string): boolean {
+  const haystack = `${currentCommand} ${startCommand}`.toLowerCase();
+  return haystack.includes("claude");
+}
+
+function isAgentRuntimeActive(agent: AgentName, currentCommand: string, startCommand: string): boolean {
+  return agent === "codex"
+    ? isCodexRuntimeActive(currentCommand, startCommand)
+    : isClaudeRuntimeActive(currentCommand, startCommand);
+}
+
 function isLiveCodexPane(currentCommand: string, startCommand: string, paneText: string): boolean {
   if (!isCodexRuntimeActive(currentCommand, startCommand)) {
     return false;
@@ -746,11 +789,11 @@ function isLiveCodexPane(currentCommand: string, startCommand: string, paneText:
   );
 }
 
-export function resolveCodexPaneCommand(currentCommand: string, startCommand: string): string {
+export function resolveAgentPaneCommand(agent: AgentName, currentCommand: string, startCommand: string): string {
   const command = (startCommand || currentCommand).trim();
-  if (!command) return "codex";
+  if (!command) return agent;
   if (command === "node" || command === "bash" || command === "zsh" || command === "fish") {
-    return "codex";
+    return agent;
   }
   const parts = command.split(/\s+/).filter(Boolean);
   while (parts.length > 1) {
@@ -761,11 +804,37 @@ export function resolveCodexPaneCommand(currentCommand: string, startCommand: st
   return parts.join(" ");
 }
 
+function normalizeHookEvent(agent: string, event: string): string {
+  const normalized = event.trim().replace(/[_\s]+/g, "-").toLowerCase();
+
+  if (agent === "codex") {
+    if (["session-start", "user-prompt-submit", "stop"].includes(normalized)) return normalized;
+    throw new Error(`Unsupported codex event: ${event}`);
+  }
+
+  if (agent === "claude") {
+    const mapped: Record<string, string> = {
+      "session-start": "session_start",
+      "user-prompt-submit": "user_prompt_submit",
+      notification: "notification",
+      stop: "stop",
+      "stop-failure": "stop_failure",
+      "post-tool-use": "activity_log",
+      "session-end": "session_end"
+    };
+    const next = mapped[normalized];
+    if (next) return next;
+    throw new Error(`Unsupported claude event: ${event}`);
+  }
+
+  throw new Error(`Unsupported agent: ${agent}`);
+}
+
 function looksLikeFilesystemPath(value: string): boolean {
   return value.startsWith("/") || value.startsWith("./") || value.startsWith("../") || value.startsWith("~/");
 }
 
-function inferCodexPaneStatus(paneText: string): CodexPane["status"] {
+function inferCodexPaneStatus(paneText: string): AgentPane["status"] {
   const recentLines = paneText
     .split("\n")
     .map((line) => line.trim())
@@ -779,7 +848,7 @@ function inferCodexPaneStatus(paneText: string): CodexPane["status"] {
   return "running";
 }
 
-function normalizeCodexPaneStatus(status: string | undefined): CodexPane["status"] {
+function normalizeAgentPaneStatus(status: string | undefined): AgentPane["status"] {
   if (status === "idle" || status === "running" || status === "waiting" || status === "error") {
     return status;
   }
@@ -839,6 +908,106 @@ async function applyCodexHook(
       return;
     default:
       throw new Error(`Unsupported codex event: ${event}`);
+  }
+}
+
+async function applyClaudeHook(
+  event: string,
+  paneId: string,
+  input: { cwd?: string; prompt?: string },
+  cwd: string,
+  run: ExecFunction
+): Promise<void> {
+  switch (event) {
+    case "session_start":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "claude",
+          "@seiton_status": "idle",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd
+        },
+        cwd,
+        run
+      );
+      await unsetPaneOptions(paneId, ["@seiton_attention", "@seiton_wait_reason", "@seiton_started_at"], cwd, run);
+      return;
+    case "user_prompt_submit":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "claude",
+          "@seiton_status": "running",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd,
+          "@seiton_started_at": new Date().toISOString()
+        },
+        cwd,
+        run
+      );
+      await unsetPaneOptions(paneId, ["@seiton_attention", "@seiton_wait_reason"], cwd, run);
+      return;
+    case "notification":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "claude",
+          "@seiton_status": "waiting",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd,
+          "@seiton_attention": "notification",
+          "@seiton_wait_reason": "notification"
+        },
+        cwd,
+        run
+      );
+      return;
+    case "stop":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "claude",
+          "@seiton_status": "idle",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd
+        },
+        cwd,
+        run
+      );
+      await unsetPaneOptions(paneId, ["@seiton_attention", "@seiton_wait_reason", "@seiton_started_at"], cwd, run);
+      return;
+    case "stop_failure":
+      await writePaneOptions(
+        paneId,
+        {
+          "@seiton_agent": "claude",
+          "@seiton_status": "error",
+          "@seiton_prompt": input.prompt,
+          "@seiton_cwd": input.cwd,
+          "@seiton_attention": "notification",
+          "@seiton_wait_reason": "stop_failure"
+        },
+        cwd,
+        run
+      );
+      return;
+    case "activity_log":
+      await appendActivityLog(paneId, input.prompt ?? "Claude tool activity");
+      return;
+    case "session_end":
+      await unsetPaneOptions(paneId, [
+        "@seiton_agent",
+        "@seiton_status",
+        "@seiton_prompt",
+        "@seiton_cwd",
+        "@seiton_attention",
+        "@seiton_wait_reason",
+        "@seiton_started_at"
+      ], cwd, run);
+      return;
+    default:
+      throw new Error(`Unsupported claude event: ${event}`);
   }
 }
 
