@@ -325,6 +325,60 @@ describe("App", () => {
     });
   });
 
+  it("shows claude waiting panes with agent-specific labels", async () => {
+    const focus = vi.fn().mockResolvedValue(undefined);
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [
+          {
+            project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+            contexts: [
+              {
+                id: "ctx-1",
+                type: "managed",
+                projectRoot: "/repo/a",
+                branch: "feature/claude-notify",
+                branchKey: "feature%2Fclaude-notify",
+                tmuxSession: "s_a_feature%2Fclaude-notify",
+                kittyTabTitle: "s_a_feature%2Fclaude-notify",
+                agentPanes: [
+                  {
+                    agent: "claude",
+                    paneId: "%21",
+                    command: "claude",
+                    lastLine: "Need confirmation before deploy",
+                    status: "waiting"
+                  }
+                ],
+                order: 10,
+                status: "ready"
+              }
+            ]
+          }
+        ],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus,
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
+    } as never;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Need confirmation before deploy")).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByText("claude").length).toBeGreaterThan(0);
+    expect(screen.getByText("waiting")).toBeInTheDocument();
+  });
+
   it("adds a project root through the additive IPC", async () => {
     const addProjectRoot = vi.fn().mockResolvedValue({
       projectsWithContexts: [],

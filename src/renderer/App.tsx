@@ -755,16 +755,16 @@ function ContextRow({
             </div>
           </div>
           {context.agentPanes.length > 0 ? (
-            <div className="codex-pane-list">
+            <div className="agent-pane-list">
               {context.agentPanes.map((pane) => (
-                <div key={pane.paneId} className="codex-pane-row">
-                  <div className="codex-pane-main">
+                <div key={pane.paneId} className="agent-pane-row">
+                  <div className="agent-pane-main">
                     <span className="agent-pane-badge">{pane.agent}</span>
                     <span className={`status codex-status ${pane.status}`}>{pane.status}</span>
                     <strong>{pane.command}</strong>
                     <small>{pane.paneId}</small>
                     <button
-                      className="codex-pane-focus"
+                      className="agent-pane-focus"
                       disabled={busy}
                       onClick={() => onFocusPane(pane)}
                       aria-label={`Focus pane ${pane.paneId}`}
@@ -772,7 +772,7 @@ function ContextRow({
                       Open
                     </button>
                   </div>
-                  <p className="codex-pane-line" title={pane.lastLine}>
+                  <p className="agent-pane-line" title={pane.lastLine}>
                     {pane.lastLine || "No recent output"}
                   </p>
                 </div>
