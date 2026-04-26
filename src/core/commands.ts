@@ -458,6 +458,7 @@ export function parseButBranches(stdout: string): Branch[] {
 function isLocalBranchName(name: string): boolean {
   return (
     name !== "unassigned changes" &&
+    !name.startsWith("staged to ") &&
     !name.startsWith("origin/") &&
     !name.startsWith("refs/")
   );

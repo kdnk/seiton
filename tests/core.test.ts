@@ -274,6 +274,21 @@ describe("GitButler parsing", () => {
     ]);
   });
 
+  it("ignores staged-target pseudo branches from but status output", () => {
+    const output = `Initiated a background sync...
+╭┄zz [unassigned changes] (no changes)
+┊
+┊╭┄ei [feature/real-branch] (no commits)
+├╯
+┊
+┊╭┄ab [staged to feature/real-branch] (2 files)
+├╯`;
+
+    expect(parseButBranches(output)).toEqual([
+      { id: "ei", name: "feature/real-branch" }
+    ]);
+  });
+
   it("runs but setup and retries status when GitButler project is missing", async () => {
     const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
     const exec: ExecFunction = async (file, args, cwd) => {
