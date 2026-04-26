@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { emitLiveUpdate } from "./live-updates";
-import { buildManagedName, type Branch, type CodexPane, type KittyTab, type SyncCommand } from "./model";
+import { buildManagedName, type AgentPane, type Branch, type CodexPane, type KittyTab, type SyncCommand } from "./model";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +19,7 @@ export type SystemSnapshot = {
   branches: Branch[];
   tmuxSessions: string[];
   kittyTabs: KittyTab[];
-  codexPanesBySession: Record<string, CodexPane[]>;
+  agentPanesBySession: Record<string, AgentPane[]>;
   warnings: string[];
 };
 
@@ -27,7 +27,7 @@ export type FullSystemSnapshot = {
   projects: Record<string, { branches: Branch[]; warnings: string[] }>;
   tmuxSessions: string[];
   kittyTabs: KittyTab[];
-  codexPanesBySession: Record<string, CodexPane[]>;
+  agentPanesBySession: Record<string, AgentPane[]>;
   globalWarnings: string[];
 };
 
@@ -82,7 +82,7 @@ export async function readSystemSnapshot(): Promise<SystemSnapshot> {
 }
 
 export async function readFullSystemSnapshot(projectRoots: string[]): Promise<FullSystemSnapshot> {
-  const [tmuxSessions, kittyTabs, codexPanesBySession] = await Promise.all([
+  const [tmuxSessions, kittyTabs, agentPanesBySession] = await Promise.all([
     readTmuxSessions(process.cwd()),
     readKittyTabs(process.cwd()),
     readCodexPanes(process.cwd())
@@ -108,15 +108,15 @@ export async function readFullSystemSnapshot(projectRoots: string[]): Promise<Fu
     projects,
     tmuxSessions: tmuxSessions.value,
     kittyTabs: kittyTabs.value,
-    codexPanesBySession: codexPanesBySession.value,
-    globalWarnings: [tmuxSessions, kittyTabs, codexPanesBySession]
+    agentPanesBySession: agentPanesBySession.value,
+    globalWarnings: [tmuxSessions, kittyTabs, agentPanesBySession]
       .flatMap((result) => result.warnings ?? [])
-      .concat([tmuxSessions, kittyTabs, codexPanesBySession].flatMap((result) => (result.ok ? [] : [result.error])))
+      .concat([tmuxSessions, kittyTabs, agentPanesBySession].flatMap((result) => (result.ok ? [] : [result.error])))
   };
 }
 
 export async function readSystemSnapshotForCwd(cwd: string): Promise<SystemSnapshot> {
-  const [branches, tmuxSessions, kittyTabs, codexPanesBySession] = await Promise.all([
+  const [branches, tmuxSessions, kittyTabs, agentPanesBySession] = await Promise.all([
     readBranches(cwd),
     readTmuxSessions(cwd),
     readKittyTabs(cwd),
@@ -127,10 +127,10 @@ export async function readSystemSnapshotForCwd(cwd: string): Promise<SystemSnaps
     branches: branches.value,
     tmuxSessions: tmuxSessions.value,
     kittyTabs: kittyTabs.value,
-    codexPanesBySession: codexPanesBySession.value,
-    warnings: [branches, tmuxSessions, kittyTabs, codexPanesBySession]
+    agentPanesBySession: agentPanesBySession.value,
+    warnings: [branches, tmuxSessions, kittyTabs, agentPanesBySession]
       .flatMap((result) => result.warnings ?? [])
-      .concat([branches, tmuxSessions, kittyTabs, codexPanesBySession].flatMap((result) => result.ok ? [] : [result.error]))
+      .concat([branches, tmuxSessions, kittyTabs, agentPanesBySession].flatMap((result) => result.ok ? [] : [result.error]))
   };
 }
 

@@ -182,6 +182,35 @@ describe("project registry", () => {
 });
 
 describe("context detection", () => {
+  it("detects claude panes from agent-backed session state", () => {
+    const contexts = detectContexts({
+      projectRoot: "/repo/a",
+      branches: [{ name: "feature/claude-notify" }],
+      tmuxSessions: ["s_a_feature%2Fclaude-notify"],
+      kittyTabs: [{ id: 1, title: "s_a_feature%2Fclaude-notify", osWindowId: 100, index: 0 }],
+      agentPanesBySession: {
+        "s_a_feature%2Fclaude-notify": [
+          {
+            agent: "claude",
+            paneId: "%21",
+            command: "claude",
+            lastLine: "Need confirmation before deploy",
+            status: "waiting"
+          }
+        ]
+      },
+      registry: { projects: [], contexts: [] }
+    });
+
+    expect(contexts[0]?.agentPanes).toEqual([
+      expect.objectContaining({
+        agent: "claude",
+        paneId: "%21",
+        status: "waiting"
+      })
+    ]);
+  });
+
   it("marks GitButler branches with tmux and Kitty resources as ready", () => {
     const contexts = detectContexts({
       projectRoot: "/repo/a",
@@ -190,7 +219,7 @@ describe("context detection", () => {
       kittyTabs: [
         { id: 1, title: "s_a_feature%2Fnotify-ui", osWindowId: 100, index: 0 }
       ],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry
     });
 
@@ -209,7 +238,7 @@ describe("context detection", () => {
       branches: [],
       tmuxSessions: ["s_a_feature%2Fnotify-ui"],
       kittyTabs: [],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry
     });
 
@@ -227,7 +256,7 @@ describe("context detection", () => {
       branches: [],
       tmuxSessions: ["seiton__%2Frepo%2Fa__feature%2Fnotify-ui"],
       kittyTabs: [],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry
     });
 
@@ -247,7 +276,7 @@ describe("context detection", () => {
       kittyTabs: [
         { id: 1, title: "s_a_feature%2Fnotify-ui", osWindowId: 100, index: 0 }
       ],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry
     });
 
@@ -1043,7 +1072,7 @@ describe("sync planning", () => {
       branches: [{ name: "feature/notify-ui" }],
       tmuxSessions: [],
       kittyTabs: [],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry
     });
 
@@ -1070,7 +1099,7 @@ describe("sync planning", () => {
       kittyTabs: [
         { id: 1, title: "s_a_feature%2Fold-name", osWindowId: 100, index: 0 }
       ],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry: {
         contexts: [
           {
@@ -1117,7 +1146,7 @@ describe("Kitty order planning", () => {
       projectRoot: "/repo/a",
       branches,
       tmuxSessions: [],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry: {
         contexts: [
           contextFixture({ branch: "feature/c", branchKey: "feature%2Fc", order: 10 }),
@@ -1146,7 +1175,7 @@ describe("Kitty order planning", () => {
       projectRoot: "/repo/a",
       branches: [{ name: "feature/a" }, { name: "feature/b" }],
       tmuxSessions: [],
-      codexPanesBySession: {},
+      agentPanesBySession: {},
       registry: {
         contexts: [
           contextFixture({ branch: "feature/b", branchKey: "feature%2Fb", order: 10 }),

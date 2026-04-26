@@ -23,6 +23,56 @@ describe("App", () => {
     expect(screen.queryByText("sample workspace")).not.toBeInTheDocument();
   });
 
+  it("renders an agent badge for claude panes", async () => {
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [
+          {
+            project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+            contexts: [
+              {
+                id: "ctx-1",
+                type: "managed",
+                projectRoot: "/repo/a",
+                branch: "feature/claude-notify",
+                branchKey: "feature%2Fclaude-notify",
+                tmuxSession: "s_a_feature%2Fclaude-notify",
+                kittyTabTitle: "s_a_feature%2Fclaude-notify",
+                agentPanes: [
+                  {
+                    agent: "claude",
+                    paneId: "%21",
+                    command: "claude",
+                    lastLine: "Need confirmation before deploy",
+                    status: "waiting"
+                  }
+                ],
+                order: 10,
+                status: "ready"
+              }
+            ]
+          }
+        ],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
+    } as never;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("claude").length).toBeGreaterThan(0);
+    });
+  });
+
   it("shows an orphan remove button and calls the API", async () => {
     const refresh = vi.fn().mockResolvedValue({
       projectsWithContexts: [
@@ -37,7 +87,7 @@ describe("App", () => {
               branchKey: "feature%2Fnotify-ui",
               tmuxSession: "s_a_feature%2Fnotify-ui",
               kittyTabTitle: "s_a_feature%2Fnotify-ui",
-              codexPanes: [],
+              agentPanes: [],
               order: 10,
               status: "orphan_tmux"
             }
@@ -92,7 +142,7 @@ describe("App", () => {
               branchId: "ab",
               tmuxSession: "s_a_feature%2Fnotify-ui",
               kittyTabTitle: "s_a_feature%2Fnotify-ui",
-              codexPanes: [],
+              agentPanes: [],
               order: 10,
               status: "ready"
             }
@@ -223,8 +273,9 @@ describe("App", () => {
               branchKey: "feature%2Fnotify-ui",
               tmuxSession: "s_a_feature%2Fnotify-ui",
               kittyTabTitle: "s_a_feature%2Fnotify-ui",
-              codexPanes: [
+              agentPanes: [
                 {
+                  agent: "codex",
                   paneId: "%12",
                   command: "codex --full-auto",
                   lastLine: "Working on rename flow",
@@ -454,7 +505,7 @@ describe("App", () => {
               branchKey: "feature%2Flive-update",
               tmuxSession: "s_a_feature%2Flive-update",
               kittyTabTitle: "s_a_feature%2Flive-update",
-              codexPanes: [],
+              agentPanes: [],
               order: 10,
               status: "ready"
             }
