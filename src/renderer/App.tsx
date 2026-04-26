@@ -695,7 +695,9 @@ function ContextRow({
         <div className="context-stack">
           <div className="context-main">
             <div className="context-head">
-              <span className={`status ${context.status}`}>{context.status}</span>
+              {shouldRenderContextStatus(context.status) ? (
+                <span className={`status ${context.status}`}>{context.status}</span>
+              ) : null}
               {isEditing ? (
                 <input
                   className="rename-input"
@@ -817,15 +819,21 @@ function DragPreviewLayer() {
           </div>
         ) : (
           <div className="drag-preview-card drag-preview-context">
-            <span className={`status ${(item as ContextDragItem).status}`}>
-              {(item as ContextDragItem).status}
-            </span>
+            {shouldRenderContextStatus((item as ContextDragItem).status) ? (
+              <span className={`status ${(item as ContextDragItem).status}`}>
+                {(item as ContextDragItem).status}
+              </span>
+            ) : null}
             <strong>{(item as ContextDragItem).branch}</strong>
           </div>
         )}
       </div>
     </div>
   );
+}
+
+function shouldRenderContextStatus(status: Context["status"]): boolean {
+  return status === "orphan_tmux";
 }
 
 function getDropEdge(element: HTMLElement, clientY: number | null): DropEdge {
