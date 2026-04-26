@@ -174,6 +174,9 @@ export function buildProjectSlug(projectRoot: string): string {
 
 export function ensureProject(input: EnsureProjectInput): Registry {
   const normalizedRoot = normalizeProjectRoot(input.root);
+  if (!isPersistableProjectRoot(normalizedRoot)) {
+    return input.registry;
+  }
   const projects = [...(input.registry.projects ?? [])];
   const existing = projects.find((project) => project.root === normalizedRoot);
   if (existing) {
@@ -554,6 +557,10 @@ function nextOrder(registry: Registry): number {
 function nextProjectOrder(projects: RegistryProject[]): number {
   const max = Math.max(0, ...projects.map((project) => project.order));
   return max + 10;
+}
+
+export function isPersistableProjectRoot(root: string): boolean {
+  return normalizeProjectRoot(root) !== "/";
 }
 
 function normalizeProjectRoot(root: string): string {

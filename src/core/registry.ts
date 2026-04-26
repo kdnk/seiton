@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Registry } from "./model";
+import { isPersistableProjectRoot, type Registry } from "./model";
 
 export function registryPath(appDataDir: string): string {
   return join(appDataDir, "registry.json");
@@ -10,9 +10,23 @@ export async function loadRegistry(appDataDir: string): Promise<Registry> {
   try {
     const raw = await readFile(registryPath(appDataDir), "utf8");
     const parsed = JSON.parse(raw) as Registry;
+    const projects = Array.isArray(parsed.projects)
+      ? parsed.projects.filter((project) => (
+          project &&
+          typeof project.root === "string" &&
+          isPersistableProjectRoot(project.root)
+        ))
+      : [];
+    const projectRoots = new Set(projects.map((project) => project.root));
     return {
-      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
-      contexts: Array.isArray(parsed.contexts) ? parsed.contexts : []
+      projects,
+      contexts: Array.isArray(parsed.contexts)
+        ? parsed.contexts.filter((context) => (
+            context &&
+            typeof context.projectRoot === "string" &&
+            projectRoots.has(context.projectRoot)
+          ))
+        : []
     };
   } catch (error) {
     if (isMissingFile(error)) {

@@ -111,6 +111,16 @@ describe("project registry", () => {
     ]);
   });
 
+  it("ignores the filesystem root as a project", () => {
+    const next = ensureProject({
+      registry: { projects: [], contexts: [] },
+      root: "/",
+      now: "2026-04-24T11:00:00+09:00"
+    });
+
+    expect(next).toEqual({ projects: [], contexts: [] });
+  });
+
   it("removes a project and its scoped contexts", () => {
     const next = removeProject({
       registry: {

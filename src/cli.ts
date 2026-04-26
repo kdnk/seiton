@@ -33,6 +33,10 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   }
 
   if (command === "open") {
+    if (deps.cwd === "/") {
+      deps.stderr.write("Refusing to add filesystem root as a project: /\n");
+      return 1;
+    }
     const appDataDir = resolveCliAppDataDir(deps.env, deps.platform);
     const registry = await deps.loadRegistry(appDataDir);
     const status = await openProjectInSeiton(deps.cwd, appDataDir, registry, deps);

@@ -64,6 +64,19 @@ describe("runCli", () => {
     expect(outputs.stdout.join("")).toContain("Opened /repo/a in Seiton.");
   });
 
+  it("does not add the filesystem root as a project", async () => {
+    const { deps, outputs } = createDeps({
+      cwd: "/"
+    });
+
+    const exitCode = await runCli(["node", "seiton", "open"], deps);
+
+    expect(exitCode).toBe(1);
+    expect(deps.saveRegistry).not.toHaveBeenCalled();
+    expect(deps.emitLiveUpdate).not.toHaveBeenCalled();
+    expect(outputs.stderr.join("")).toContain("Refusing to add filesystem root as a project: /");
+  });
+
   it("prints a message when the project already exists", async () => {
     const { deps, outputs } = createDeps({
       loadRegistry: vi.fn().mockResolvedValue({
