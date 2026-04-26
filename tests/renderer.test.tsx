@@ -71,6 +71,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getAllByText("claude").length).toBeGreaterThan(0);
     });
+
+    expect(screen.queryByText("ready")).not.toBeInTheDocument();
   });
 
   it("shows an orphan remove button and calls the API", async () => {
@@ -119,6 +121,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByText("feature/notify-ui")).toBeInTheDocument();
     });
+
+    expect(screen.getByText("orphan_tmux")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove orphan feature/notify-ui" }));
 
