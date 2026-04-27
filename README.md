@@ -321,6 +321,89 @@ seiton hook claude post-tool-use
 seiton hook claude session-end
 ```
 
+### Configure `~/.claude/settings.json`
+
+Claude Code reads hooks from `~/.claude/settings.json` (or a project-local `.claude/settings.json`). Add a `hooks` block that calls the `seiton` command for each event Seiton tracks:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "seiton hook claude session-start"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "seiton hook claude user-prompt-submit"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "seiton hook claude notification"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "seiton hook claude stop"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "seiton hook claude stop-failure"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "seiton hook claude post-tool-use"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "seiton hook claude session-end"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+If you have not installed the `seiton` command on `PATH`, replace `seiton` with `cd /ABS/PATH/TO/SEITON && ./dist-electron/cli.js` in the same way as the Codex absolute-path example above.
+
 ### Manual notifications
 
 Use `seiton notify` inside a tmux pane when you need to raise a waiting state manually:
