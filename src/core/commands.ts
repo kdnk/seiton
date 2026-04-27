@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { readdir, stat } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import { appendActivityLog } from "./activity-log";
 import { emitLiveUpdate } from "./live-updates";
@@ -215,17 +217,20 @@ export async function focusContext(
   }
 
   let hasKitty = true;
+  let kittyAvailable = true;
   try {
     await run("kitty", ["@", "focus-tab", "--match", `title:${title}`], cwd);
   } catch (error) {
-    if (isNoMatchingKittyTab(error)) {
+    if (isKittyUnavailable(error)) {
+      kittyAvailable = false;
+    } else if (isNoMatchingKittyTab(error)) {
       hasKitty = false;
     } else {
       throw error;
     }
   }
 
-  if (!hasKitty) {
+  if (kittyAvailable && !hasKitty) {
     await run("kitty", [
       "@",
       "launch",
@@ -240,7 +245,7 @@ export async function focusContext(
     ], cwd);
   }
 
-  const targetClientTty = hasKitty
+  const targetClientTty = kittyAvailable && hasKitty
     ? await readTargetTmuxClientTtyForKittyTab(title, cwd, run)
     : undefined;
 
@@ -271,7 +276,7 @@ export async function removeOrphanContext(
   try {
     await run("kitty", ["@", "close-tab", "--match", `title:${input.kittyTabTitle}`], cwd);
   } catch (error) {
-    if (!isNoMatchingKittyTab(error)) {
+    if (!isNoMatchingKittyTab(error) && !isKittyUnavailable(error)) {
       throw error;
     }
   }
@@ -309,7 +314,7 @@ export async function renameManagedContext(
       cwd
     );
   } catch (error) {
-    if (!isNoMatchingKittyTab(error)) throw error;
+    if (!isNoMatchingKittyTab(error) && !isKittyUnavailable(error)) throw error;
   }
 }
 
@@ -707,11 +712,93 @@ async function exec(
   args: string[],
   cwd: string
 ): Promise<{ stdout: string; stderr: string }> {
+  const env = file === "kitty" ? await buildKittyEnv() : process.env;
   return execFileAsync(file, args, {
     cwd,
+    env,
     timeout: 10_000,
     maxBuffer: 1024 * 1024 * 4
   });
+}
+
+let cachedKittySocket: { socket?: string; resolvedAt: number } | undefined;
+const KITTY_SOCKET_CACHE_MS = 2_000;
+
+async function buildKittyEnv(): Promise<NodeJS.ProcessEnv> {
+  const env = { ...process.env };
+  const socket = await resolveKittySocket();
+  if (socket) {
+    env.KITTY_LISTEN_ON = socket;
+  } else {
+    delete env.KITTY_LISTEN_ON;
+  }
+  return env;
+}
+
+async function resolveKittySocket(): Promise<string | undefined> {
+  const now = Date.now();
+  if (cachedKittySocket && now - cachedKittySocket.resolvedAt < KITTY_SOCKET_CACHE_MS) {
+    return cachedKittySocket.socket;
+  }
+
+  const candidates: string[] = [];
+  const fromEnv = process.env.KITTY_LISTEN_ON;
+  if (fromEnv) candidates.push(fromEnv);
+
+  const dirs = new Set<string>(["/tmp"]);
+  if (process.env.TMPDIR) dirs.add(process.env.TMPDIR);
+
+  for (const dir of dirs) {
+    let entries: string[] = [];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const name of entries) {
+      const match = name.match(/^mykitty-(\d+)$/);
+      if (!match) continue;
+      const pid = Number.parseInt(match[1] ?? "", 10);
+      if (!Number.isFinite(pid) || !isProcessAlive(pid)) continue;
+      candidates.push(`unix:${path.join(dir, name)}`);
+    }
+  }
+
+  let resolved: string | undefined;
+  for (const candidate of candidates) {
+    if (await isLiveKittySocket(candidate)) {
+      resolved = candidate;
+      break;
+    }
+  }
+
+  cachedKittySocket = { ...(resolved !== undefined ? { socket: resolved } : {}), resolvedAt: now };
+  return resolved;
+}
+
+async function isLiveKittySocket(candidate: string): Promise<boolean> {
+  const socketPath = candidate.replace(/^unix:/, "");
+  try {
+    const info = await stat(socketPath);
+    if (!info.isSocket()) return false;
+  } catch {
+    return false;
+  }
+  const match = socketPath.match(/mykitty-(\d+)$/);
+  if (match) {
+    const pid = Number.parseInt(match[1] ?? "", 10);
+    if (Number.isFinite(pid) && !isProcessAlive(pid)) return false;
+  }
+  return true;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function readPaneSnapshot(
@@ -810,6 +897,7 @@ function isCodexRuntimeActive(currentCommand: string, startCommand: string): boo
 function isClaudePane(currentCommand: string, startCommand: string, paneText: string): boolean {
   const haystack = `${currentCommand} ${startCommand}`.toLowerCase();
   if (haystack.includes("claude")) return true;
+  if (isClaudeProcessTitle(currentCommand)) return true;
 
   const normalizedPaneText = paneText.toLowerCase();
   return (
@@ -821,7 +909,12 @@ function isClaudePane(currentCommand: string, startCommand: string, paneText: st
 
 function isClaudeRuntimeActive(currentCommand: string, startCommand: string): boolean {
   const haystack = `${currentCommand} ${startCommand}`.toLowerCase();
-  return haystack.includes("claude");
+  if (haystack.includes("claude")) return true;
+  return isClaudeProcessTitle(currentCommand);
+}
+
+function isClaudeProcessTitle(command: string): boolean {
+  return /^\d+\.\d+\.\d+(?:[.-][\w.]+)*$/.test(command.trim());
 }
 
 function isAgentRuntimeActive(agent: AgentName, currentCommand: string, startCommand: string): boolean {
@@ -853,10 +946,15 @@ function isLiveClaudePane(currentCommand: string, startCommand: string, paneText
   return normalizedPaneText.includes("claude code") && normalizedPaneText.includes("/help for help");
 }
 
+
+
 export function resolveAgentPaneCommand(agent: AgentName, currentCommand: string, startCommand: string): string {
   const command = (startCommand || currentCommand).trim();
   if (!command) return agent;
   if (command === "node" || command === "bash" || command === "zsh" || command === "fish") {
+    return agent;
+  }
+  if (agent === "claude" && isClaudeProcessTitle(command)) {
     return agent;
   }
   const parts = command.split(/\s+/).filter(Boolean);
@@ -913,17 +1011,18 @@ function inferCodexPaneStatus(paneText: string): AgentPane["status"] {
 }
 
 function inferClaudePaneStatus(paneText: string): AgentPane["status"] {
-  const recentLines = paneText
+  const recent = paneText
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .slice(-5);
+    .slice(-10)
+    .join("\n");
 
-  if (recentLines.some((line) => line.startsWith(">"))) {
-    return "idle";
+  if (/\(\d+s[\s·]/.test(recent) || /esc to interrupt/i.test(recent)) {
+    return "running";
   }
 
-  return "running";
+  return "idle";
 }
 
 function normalizeAgentPaneStatus(status: string | undefined): AgentPane["status"] {
@@ -1160,6 +1259,14 @@ function shouldSetupGitButler(error: unknown): boolean {
 
 function isNoMatchingKittyTab(error: unknown): boolean {
   return errorDetails(error).includes("No matching tabs");
+}
+
+function isKittyUnavailable(error: unknown): boolean {
+  const details = errorDetails(error);
+  return (
+    details.includes("Failed to connect to unix:") ||
+    details.includes("connect: no such file or directory")
+  );
 }
 
 function isNoCurrentTmuxClient(error: unknown): boolean {
