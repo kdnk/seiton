@@ -763,7 +763,9 @@ function ContextRow({
                   <div className="agent-pane-main">
                     <span className="agent-pane-badge">{pane.agent}</span>
                     <span className={`status codex-status ${pane.status}`}>{pane.status}</span>
-                    <strong>{pane.command}</strong>
+                    {pane.command && pane.command !== pane.agent ? (
+                      <strong>{pane.command}</strong>
+                    ) : null}
                     <small>{pane.paneId}</small>
                     <button
                       className="agent-pane-focus"

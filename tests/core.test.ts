@@ -567,6 +567,73 @@ describe("GitButler parsing", () => {
     });
   });
 
+  it("detects a live claude pane when current command is the claude version string", async () => {
+    const exec: ExecFunction = async (file, args) => {
+      if (file === "tmux" && args[0] === "capture-pane") {
+        return {
+          stdout: [
+            "⏺ Bash(npm test)",
+            "  ⎿  Running…",
+            "✳ Percolating… (38s · thinking more with high effort)",
+            "──────────────────────────────────────────────",
+            "❯ ",
+            "──────────────────────────────────────────────",
+            "  Model: Opus 4.7 | C...",
+            "  ⏵⏵ auto mode on (shift+tab to cycle)"
+          ].join("\n"),
+          stderr: ""
+        };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    const result = await parseTmuxClaudePanes(
+      "s_a_feature%2Fclaude\t%42\t2.1.119\t\n",
+      "/repo/a",
+      exec
+    );
+
+    expect(result).toEqual({
+      "s_a_feature%2Fclaude": [
+        {
+          agent: "claude",
+          paneId: "%42",
+          command: "claude",
+          lastLine: "⏵⏵ auto mode on (shift+tab to cycle)",
+          status: "running"
+        }
+      ]
+    });
+  });
+
+  it("reports an idle claude pane when no running indicator is present", async () => {
+    const exec: ExecFunction = async (file, args) => {
+      if (file === "tmux" && args[0] === "capture-pane") {
+        return {
+          stdout: [
+            "⏺ Done.",
+            "  ⎿  All tests pass.",
+            "──────────────────────────────────────────────",
+            "❯ ",
+            "──────────────────────────────────────────────",
+            "  Model: Opus 4.7 | Context left: 80%",
+            "  ⏵⏵ auto mode on (shift+tab to cycle)"
+          ].join("\n"),
+          stderr: ""
+        };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    const result = await parseTmuxClaudePanes(
+      "s_a_feature%2Fclaude\t%43\t2.1.119\t\n",
+      "/repo/a",
+      exec
+    );
+
+    expect(result["s_a_feature%2Fclaude"]?.[0]?.status).toBe("idle");
+  });
+
   it("prefers hook-backed claude pane state over runtime-derived state", async () => {
     const exec: ExecFunction = async (file, args) => {
       if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_agent") {
@@ -1000,6 +1067,49 @@ describe("focusing contexts", () => {
       {
         file: "tmux",
         args: ["list-clients", "-F", "#{client_tty}\t#{session_name}\t#{client_pid}"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["switch-client", "-t", "s_a_feature%2Fnotify-ui"],
+        cwd: "/repo/a"
+      }
+    ]);
+  });
+
+  it("skips kitty operations when kitty's remote control socket is unavailable", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      if (file === "tmux" && args[0] === "has-session") {
+        return { stdout: "", stderr: "" };
+      }
+      if (file === "kitty" && args[1] === "focus-tab") {
+        throw {
+          message: "Command failed: kitty @ focus-tab --match title:s_a_feature%2Fnotify-ui",
+          stderr:
+            "Error: Failed to connect to unix:/tmp/mykitty-81414 with error: dial unix /tmp/mykitty-81414: connect: no such file or directory\n"
+        };
+      }
+      if (file === "tmux" && args[0] === "switch-client") {
+        return { stdout: "", stderr: "" };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    await expect(
+      focusContext("/repo/a", "feature%2Fnotify-ui", undefined, "/repo/a", exec)
+    ).resolves.toBeUndefined();
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["has-session", "-t", "s_a_feature%2Fnotify-ui"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "kitty",
+        args: ["@", "focus-tab", "--match", "title:s_a_feature%2Fnotify-ui"],
         cwd: "/repo/a"
       },
       {
