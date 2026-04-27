@@ -16,7 +16,9 @@ import {
 import {
   applyAgentHook,
   parseButBranches,
+  parseTmuxClaudePanes,
   parseTmuxCodexPanes,
+  readAgentPanesFromTmux,
   readAgentPanesFromTmuxOptions,
   focusContext,
   removeOrphanContext,
@@ -524,6 +526,85 @@ describe("GitButler parsing", () => {
           paneId: "%21",
           command: "claude",
           lastLine: "Need approval to continue",
+          status: "waiting"
+        }
+      ]
+    });
+  });
+
+  it("detects a live claude pane from runtime state without tmux options", async () => {
+    const exec: ExecFunction = async (file, args) => {
+      if (file === "tmux" && args[0] === "capture-pane") {
+        return {
+          stdout: [
+            "Claude Code",
+            "",
+            "/help for help",
+            "> Summarize the failing tests"
+          ].join("\n"),
+          stderr: ""
+        };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    const result = await parseTmuxClaudePanes(
+      "s_a_feature%2Fclaude\t%21\tclaude\tclaude\n",
+      "/repo/a",
+      exec
+    );
+
+    expect(result).toEqual({
+      "s_a_feature%2Fclaude": [
+        {
+          agent: "claude",
+          paneId: "%21",
+          command: "claude",
+          lastLine: "> Summarize the failing tests",
+          status: "idle"
+        }
+      ]
+    });
+  });
+
+  it("prefers hook-backed claude pane state over runtime-derived state", async () => {
+    const exec: ExecFunction = async (file, args) => {
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_agent") {
+        return { stdout: "claude\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_status") {
+        return { stdout: "waiting\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "show-options" && args[5] === "@seiton_prompt") {
+        return { stdout: "Need confirmation before deploy\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "capture-pane") {
+        return {
+          stdout: [
+            "Claude Code",
+            "",
+            "/help for help",
+            "> continue"
+          ].join("\n"),
+          stderr: ""
+        };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    const result = await readAgentPanesFromTmux(
+      "s_a_feature%2Fclaude\t%21\tclaude\tclaude\n",
+      "/repo/a",
+      exec
+    );
+
+    expect(result).toEqual({
+      "s_a_feature%2Fclaude": [
+        {
+          agent: "claude",
+          paneId: "%21",
+          command: "claude",
+          lastLine: "Need confirmation before deploy",
           status: "waiting"
         }
       ]
