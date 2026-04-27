@@ -134,6 +134,7 @@ export function App() {
   const [lastSync, setLastSync] = useState<string>("not synced");
   const [cliStatus, setCliStatus] = useState<CliCommandStatus | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   function pushGlobalWarning(warning: string) {
     setState((current) => ({
@@ -163,18 +164,35 @@ export function App() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if ((!event.metaKey && !event.ctrlKey) || event.key.toLowerCase() !== "o") return;
+      if (event.key === "Escape") {
+        setShortcutsOpen(false);
+        return;
+      }
+      if (!event.metaKey && !event.ctrlKey) return;
       const target = event.target;
-      if (
+      const inEditable =
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         target instanceof HTMLSelectElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
-      ) {
+        (target instanceof HTMLElement && target.isContentEditable);
+
+      const key = event.key.toLowerCase();
+      if (key === "/" || (event.shiftKey && key === "?")) {
+        event.preventDefault();
+        setShortcutsOpen((open) => !open);
         return;
       }
-      event.preventDefault();
-      void addProjectRoot();
+      if (inEditable) return;
+      if (key === "r") {
+        event.preventDefault();
+        void refresh();
+      } else if (key === "o") {
+        event.preventDefault();
+        void addProjectRoot();
+      } else if (key === "s") {
+        event.preventDefault();
+        void sync();
+      }
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -328,17 +346,10 @@ export function App() {
 
         <header className="topbar">
           <div className="actions">
-            <button onClick={refresh} disabled={busy}>Reload</button>
-            <button onClick={addProjectRoot} disabled={busy || !window.seiton}>
-              Add project
-            </button>
-            <button className="primary" onClick={sync} disabled={busy || !window.seiton}>
-              Apply
-            </button>
             <button
               className="icon-button"
               aria-label="Open settings"
-              title="Settings"
+              title="Settings (⌘/ for shortcuts)"
               onClick={() => setSettingsOpen(true)}
               disabled={busy}
             >
@@ -432,6 +443,51 @@ export function App() {
                   </button>
                 </div>
               </div>
+            </section>
+          </div>
+        ) : null}
+
+        {shortcutsOpen ? (
+          <div
+            className="modal-backdrop"
+            onClick={() => setShortcutsOpen(false)}
+            role="presentation"
+          >
+            <section
+              className="panel shortcuts-modal"
+              aria-label="Keyboard shortcuts"
+              role="dialog"
+              aria-modal="true"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header>
+                <h2>Shortcuts</h2>
+                <button
+                  className="icon-button"
+                  aria-label="Close shortcuts"
+                  onClick={() => setShortcutsOpen(false)}
+                >
+                  <CloseIcon />
+                </button>
+              </header>
+              <dl className="shortcuts-list">
+                <div className="shortcut-row">
+                  <dt><kbd>⌘</kbd> <kbd>R</kbd></dt>
+                  <dd>Reload</dd>
+                </div>
+                <div className="shortcut-row">
+                  <dt><kbd>⌘</kbd> <kbd>O</kbd></dt>
+                  <dd>Add project</dd>
+                </div>
+                <div className="shortcut-row">
+                  <dt><kbd>⌘</kbd> <kbd>S</kbd></dt>
+                  <dd>Apply</dd>
+                </div>
+                <div className="shortcut-row">
+                  <dt><kbd>⌘</kbd> <kbd>/</kbd></dt>
+                  <dd>Toggle this panel</dd>
+                </div>
+              </dl>
             </section>
           </div>
         ) : null}
