@@ -452,9 +452,7 @@ async function readAgentPanes(cwd: string): Promise<CommandResult<Record<string,
       "-F",
       "#{session_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_start_command}"
     ], cwd);
-    const optionBacked = await readAgentPanesFromTmuxOptions(stdout, cwd, exec);
-    const fallback = await parseTmuxCodexPanes(stdout, cwd, exec);
-    return { ok: true, value: mergeAgentPaneMaps(optionBacked, fallback) };
+    return { ok: true, value: await readAgentPanesFromTmux(stdout, cwd, exec) };
   } catch (error) {
     return {
       ok: false,
@@ -592,6 +590,20 @@ export async function readAgentPanesFromTmuxOptions(
   return sortPaneMap(result);
 }
 
+export async function readAgentPanesFromTmux(
+  stdout: string,
+  cwd: string,
+  run: ExecFunction
+): Promise<Record<string, AgentPane[]>> {
+  const [optionBacked, codexRuntime, claudeRuntime] = await Promise.all([
+    readAgentPanesFromTmuxOptions(stdout, cwd, run),
+    parseTmuxCodexPanes(stdout, cwd, run),
+    parseTmuxClaudePanes(stdout, cwd, run)
+  ]);
+
+  return mergeAgentPaneMaps(optionBacked, mergeAgentPaneMaps(codexRuntime, claudeRuntime));
+}
+
 export async function parseTmuxCodexPanes(
   stdout: string,
   cwd: string,
@@ -614,6 +626,37 @@ export async function parseTmuxCodexPanes(
       command: resolveAgentPaneCommand("codex", pane.currentCommand, pane.startCommand),
       lastLine: snapshot.lastLine,
       status: inferCodexPaneStatus(snapshot.fullText)
+    };
+    const existing = result[pane.sessionName] ?? [];
+    existing.push(entry);
+    result[pane.sessionName] = existing;
+  }
+
+  return sortPaneMap(result);
+}
+
+export async function parseTmuxClaudePanes(
+  stdout: string,
+  cwd: string,
+  run: ExecFunction
+): Promise<Record<string, AgentPane[]>> {
+  const paneCandidates = parsePaneCandidates(stdout);
+
+  const result: Record<string, AgentPane[]> = {};
+  for (const pane of paneCandidates) {
+    const snapshot = await readPaneSnapshot(pane.paneId, cwd, run);
+    if (!isClaudePane(pane.currentCommand, pane.startCommand, snapshot.fullText)) {
+      continue;
+    }
+    if (!isLiveClaudePane(pane.currentCommand, pane.startCommand, snapshot.fullText)) {
+      continue;
+    }
+    const entry: AgentPane = {
+      agent: "claude",
+      paneId: pane.paneId,
+      command: resolveAgentPaneCommand("claude", pane.currentCommand, pane.startCommand),
+      lastLine: snapshot.lastLine,
+      status: inferClaudePaneStatus(snapshot.fullText)
     };
     const existing = result[pane.sessionName] ?? [];
     existing.push(entry);
@@ -764,6 +807,18 @@ function isCodexRuntimeActive(currentCommand: string, startCommand: string): boo
   return current === "node";
 }
 
+function isClaudePane(currentCommand: string, startCommand: string, paneText: string): boolean {
+  const haystack = `${currentCommand} ${startCommand}`.toLowerCase();
+  if (haystack.includes("claude")) return true;
+
+  const normalizedPaneText = paneText.toLowerCase();
+  return (
+    normalizedPaneText.includes("claude code") ||
+    normalizedPaneText.includes("/help for help") ||
+    normalizedPaneText.includes("anthropic")
+  );
+}
+
 function isClaudeRuntimeActive(currentCommand: string, startCommand: string): boolean {
   const haystack = `${currentCommand} ${startCommand}`.toLowerCase();
   return haystack.includes("claude");
@@ -787,6 +842,15 @@ function isLiveCodexPane(currentCommand: string, startCommand: string, paneText:
     normalizedPaneText.includes("/model to change") ||
     normalizedPaneText.includes("gpt-5.")
   );
+}
+
+function isLiveClaudePane(currentCommand: string, startCommand: string, paneText: string): boolean {
+  if (isClaudeRuntimeActive(currentCommand, startCommand)) {
+    return true;
+  }
+
+  const normalizedPaneText = paneText.toLowerCase();
+  return normalizedPaneText.includes("claude code") && normalizedPaneText.includes("/help for help");
 }
 
 export function resolveAgentPaneCommand(agent: AgentName, currentCommand: string, startCommand: string): string {
@@ -842,6 +906,20 @@ function inferCodexPaneStatus(paneText: string): AgentPane["status"] {
     .slice(-5);
 
   if (recentLines.some((line) => line.startsWith("› "))) {
+    return "idle";
+  }
+
+  return "running";
+}
+
+function inferClaudePaneStatus(paneText: string): AgentPane["status"] {
+  const recentLines = paneText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-5);
+
+  if (recentLines.some((line) => line.startsWith(">"))) {
     return "idle";
   }
 

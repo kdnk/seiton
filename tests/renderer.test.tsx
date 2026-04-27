@@ -75,6 +75,59 @@ describe("App", () => {
     expect(screen.queryByText("ready")).not.toBeInTheDocument();
   });
 
+  it("renders a runtime-detected claude pane without hook metadata", async () => {
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [
+          {
+            project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+            contexts: [
+              {
+                id: "ctx-1",
+                type: "managed",
+                projectRoot: "/repo/a",
+                branch: "feature/claude-runtime",
+                branchKey: "feature%2Fclaude-runtime",
+                tmuxSession: "s_a_feature%2Fclaude-runtime",
+                kittyTabTitle: "s_a_feature%2Fclaude-runtime",
+                agentPanes: [
+                  {
+                    agent: "claude",
+                    paneId: "%21",
+                    command: "claude",
+                    lastLine: "> Summarize the failing tests",
+                    status: "idle"
+                  }
+                ],
+                order: 10,
+                status: "ready"
+              }
+            ]
+          }
+        ],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
+    } as never;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("> Summarize the failing tests")).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByText("claude").length).toBeGreaterThan(0);
+    expect(screen.getByText("idle")).toBeInTheDocument();
+  });
+
   it("shows an orphan remove button and calls the API", async () => {
     const refresh = vi.fn().mockResolvedValue({
       projectsWithContexts: [
