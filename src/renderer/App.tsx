@@ -227,12 +227,6 @@ export function App() {
     }
   }
 
-  async function focus(context: Context) {
-    if (!window.seiton) return;
-    await window.seiton.focus(context.projectRoot, context.branchKey, context.primaryPaneId);
-    await refresh();
-  }
-
   async function focusPane(context: Context, pane: AgentPane) {
     if (!window.seiton) return;
     await window.seiton.focus(context.projectRoot, context.branchKey, pane.paneId);
@@ -287,6 +281,10 @@ export function App() {
 
   async function moveProject(from: number, to: number) {
     if (!window.seiton || from === to) return;
+    setState((current) => ({
+      ...current,
+      projectsWithContexts: reorderArray(current.projectsWithContexts, from, to)
+    }));
     setBusy(true);
     try {
       setState(await window.seiton.reorderProjects(from, to));
@@ -297,6 +295,14 @@ export function App() {
 
   async function moveContext(projectRoot: string, from: number, to: number) {
     if (!window.seiton || from === to) return;
+    setState((current) => ({
+      ...current,
+      projectsWithContexts: current.projectsWithContexts.map((pc) =>
+        pc.project.root === projectRoot
+          ? { ...pc, contexts: reorderArray(pc.contexts, from, to) }
+          : pc
+      )
+    }));
     setBusy(true);
     try {
       setState(await window.seiton.reorderContexts(projectRoot, from, to));
@@ -365,7 +371,6 @@ export function App() {
                 busy={busy}
                 onMoveProject={moveProject}
                 onMoveContext={moveContext}
-                onFocus={focus}
                 onFocusPane={focusPane}
                 onRename={renameContext}
                 onRemoveOrphan={removeOrphan}
@@ -398,7 +403,7 @@ export function App() {
                   aria-label="Close settings"
                   onClick={() => setSettingsOpen(false)}
                 >
-                  ×
+                  <CloseIcon />
                 </button>
               </header>
               <div className="settings-body">
@@ -441,7 +446,6 @@ function ProjectSection({
   busy,
   onMoveProject,
   onMoveContext,
-  onFocus,
   onFocusPane,
   onRename,
   onRemoveOrphan,
@@ -452,7 +456,6 @@ function ProjectSection({
   busy: boolean;
   onMoveProject: (from: number, to: number) => void;
   onMoveContext: (projectRoot: string, from: number, to: number) => void;
-  onFocus: (context: Context) => void;
   onFocusPane: (context: Context, pane: AgentPane) => void;
   onRename: (context: Context, newBranch: string) => void;
   onRemoveOrphan: (context: Context) => void;
@@ -529,11 +532,13 @@ function ProjectSection({
               aria-label={`Drag project ${project.name}`}
               onClick={(event) => event.stopPropagation()}
             >
-              :::
+              <DragHandleIcon />
             </button>
             <div className="project-header-copy">
               <h2>{project.name}</h2>
-              <small>{project.root}</small>
+              <small className="project-path" title={project.root}>
+                <bdo dir="ltr">{project.root}</bdo>
+              </small>
             </div>
           </div>
           <div className="project-actions">
@@ -543,7 +548,7 @@ function ProjectSection({
               disabled={busy}
               onClick={() => onRemoveProjectRoot(project.root)}
             >
-              ×
+              <CloseIcon />
             </button>
           </div>
         </header>
@@ -566,7 +571,6 @@ function ProjectSection({
                   context={context}
                   index={index}
                   busy={busy}
-                  onFocus={() => onFocus(context)}
                   onFocusPane={(pane) => onFocusPane(context, pane)}
                   onRename={(newBranch) => onRename(context, newBranch)}
                   onRemoveOrphan={() => onRemoveOrphan(context)}
@@ -586,7 +590,6 @@ function ContextRow({
   context,
   index,
   busy,
-  onFocus,
   onFocusPane,
   onRename,
   onRemoveOrphan,
@@ -595,14 +598,13 @@ function ContextRow({
   context: Context;
   index: number;
   busy: boolean;
-  onFocus: () => void;
   onFocusPane: (pane: AgentPane) => void;
   onRename: (newBranch: string) => void;
   onRemoveOrphan: () => void;
   onMove: (from: number, to: number) => void;
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
-  const handleRef = useRef<HTMLButtonElement | null>(null);
+  const handleRef = useRef<HTMLDivElement | null>(null);
   const [dropEdge, setDropEdge] = useState<DropEdge>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [draftBranch, setDraftBranch] = useState(context.branch);
@@ -616,10 +618,11 @@ function ContextRow({
       branch: context.branch,
       status: context.status
     },
+    canDrag: () => !isEditing,
     collect: (monitor) => ({
       isDragging: monitor.isDragging()
     })
-  }), [context.branch, context.projectRoot, context.status, index]);
+  }), [context.branch, context.projectRoot, context.status, index, isEditing]);
 
   const [{ isOver, canDrop }, drop] = useDrop<ContextDragItem, void, { isOver: boolean; canDrop: boolean }>(() => ({
     accept: "context",
@@ -648,7 +651,7 @@ function ContextRow({
 
   useEffect(() => {
     drag(handleRef);
-  }, [drag]);
+  }, [drag, isEditing]);
 
   useEffect(() => {
     drop(rowRef);
@@ -683,15 +686,7 @@ function ContextRow({
       )}
     >
       <DropGutter visible={canDrop && isOver && dropEdge === "before"} />
-      <div className="context-row">
-        <button
-          ref={handleRef}
-          className="drag-handle context-handle"
-          aria-label={`Drag context ${context.branch}`}
-          disabled={isEditing}
-        >
-          ::
-        </button>
+      <div ref={handleRef} className="context-row">
         <div className="context-stack">
           <div className="context-main">
             <div className="context-head">
@@ -718,48 +713,43 @@ function ContextRow({
                   }}
                 />
               ) : (
-                <strong>{context.branch}</strong>
+                <button
+                  type="button"
+                  className="branch-label"
+                  onClick={() => {
+                    if (busy || context.status === "orphan_tmux") return;
+                    setIsEditing(true);
+                  }}
+                  aria-label={`Rename ${context.branch}`}
+                >
+                  {context.branch}
+                </button>
               )}
             </div>
-            <div className="context-actions">
-              <button onClick={onFocus}>Focus</button>
-              {context.status !== "orphan_tmux" ? (
-                isEditing ? (
-                  <>
-                    <button disabled={busy} onMouseDown={(event) => event.preventDefault()} onClick={submitRename}>
-                      Save
-                    </button>
-                    <button
-                      disabled={busy}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setDraftBranch(context.branch);
-                        setIsEditing(false);
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <button disabled={busy} onClick={() => setIsEditing(true)}>Rename</button>
-                )
-              ) : null}
-              {context.status === "orphan_tmux" ? (
+            {context.status === "orphan_tmux" ? (
+              <div className="context-actions">
                 <button
                   className="danger-icon"
                   aria-label={`Remove orphan ${context.branch}`}
                   disabled={busy}
                   onClick={onRemoveOrphan}
                 >
-                  ×
+                  <CloseIcon />
                 </button>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
           {context.agentPanes.length > 0 ? (
             <div className="agent-pane-list">
               {context.agentPanes.map((pane) => (
-                <div key={pane.paneId} className="agent-pane-row">
+                <button
+                  key={pane.paneId}
+                  type="button"
+                  className="agent-pane-row"
+                  disabled={busy}
+                  onClick={() => onFocusPane(pane)}
+                  aria-label={`Focus pane ${pane.paneId}`}
+                >
                   <div className="agent-pane-main">
                     <span className="agent-pane-badge">{pane.agent}</span>
                     <span className={`status codex-status ${pane.status}`}>{pane.status}</span>
@@ -767,19 +757,11 @@ function ContextRow({
                       <strong>{pane.command}</strong>
                     ) : null}
                     <small>{pane.paneId}</small>
-                    <button
-                      className="agent-pane-focus"
-                      disabled={busy}
-                      onClick={() => onFocusPane(pane)}
-                      aria-label={`Focus pane ${pane.paneId}`}
-                    >
-                      Open
-                    </button>
                   </div>
                   <p className="agent-pane-line" title={pane.lastLine}>
                     {pane.lastLine || "No recent output"}
                   </p>
-                </div>
+                </button>
               ))}
             </div>
           ) : null}
@@ -850,8 +832,57 @@ function getReorderedIndex(from: number, target: number, edge: DropEdge): number
   return from < rawTarget ? rawTarget - 1 : rawTarget;
 }
 
+function reorderArray<T>(items: T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || from >= items.length) return items;
+  const next = [...items];
+  const moved = next.splice(from, 1)[0]!;
+  next.splice(to, 0, moved);
+  return next;
+}
+
 function classNames(...names: Array<string | false | null | undefined>): string {
   return names.filter(Boolean).join(" ");
+}
+
+function DragHandleIcon() {
+  return (
+    <svg
+      className="icon"
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="6" cy="3.5" r="1.3" />
+      <circle cx="10" cy="3.5" r="1.3" />
+      <circle cx="6" cy="8" r="1.3" />
+      <circle cx="10" cy="8" r="1.3" />
+      <circle cx="6" cy="12.5" r="1.3" />
+      <circle cx="10" cy="12.5" r="1.3" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      className="icon"
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M4 4 L12 12" />
+      <path d="M12 4 L4 12" />
+    </svg>
+  );
 }
 
 const root = document.getElementById("root");
