@@ -354,6 +354,15 @@ export function App() {
           <div className="actions">
             <button
               className="icon-button"
+              aria-label="Reload"
+              title="Reload (⌘R)"
+              onClick={refresh}
+              disabled={busy}
+            >
+              ↻
+            </button>
+            <button
+              className="icon-button"
               aria-label="Open settings"
               title="Settings (⌘/ for shortcuts)"
               onClick={() => setSettingsOpen(true)}
