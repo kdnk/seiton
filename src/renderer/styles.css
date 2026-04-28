@@ -359,7 +359,7 @@ button.primary {
 .agent-pane-list {
   display: grid;
   gap: 6px;
-  padding-left: 2px;
+  padding-left: 16px;
 }
 
 .agent-pane-row {
