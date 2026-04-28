@@ -245,6 +245,12 @@ export function App() {
     }
   }
 
+  async function focusContext(context: Context) {
+    if (!window.seiton) return;
+    await window.seiton.focus(context.projectRoot, context.branchKey, context.primaryPaneId);
+    await refresh();
+  }
+
   async function focusPane(context: Context, pane: AgentPane) {
     if (!window.seiton) return;
     await window.seiton.focus(context.projectRoot, context.branchKey, pane.paneId);
@@ -382,6 +388,7 @@ export function App() {
                 busy={busy}
                 onMoveProject={moveProject}
                 onMoveContext={moveContext}
+                onFocus={focusContext}
                 onFocusPane={focusPane}
                 onRename={renameContext}
                 onRemoveOrphan={removeOrphan}
@@ -502,6 +509,7 @@ function ProjectSection({
   busy,
   onMoveProject,
   onMoveContext,
+  onFocus,
   onFocusPane,
   onRename,
   onRemoveOrphan,
@@ -512,6 +520,7 @@ function ProjectSection({
   busy: boolean;
   onMoveProject: (from: number, to: number) => void;
   onMoveContext: (projectRoot: string, from: number, to: number) => void;
+  onFocus: (context: Context) => void;
   onFocusPane: (context: Context, pane: AgentPane) => void;
   onRename: (context: Context, newBranch: string) => void;
   onRemoveOrphan: (context: Context) => void;
@@ -627,6 +636,7 @@ function ProjectSection({
                   context={context}
                   index={index}
                   busy={busy}
+                  onFocus={() => onFocus(context)}
                   onFocusPane={(pane) => onFocusPane(context, pane)}
                   onRename={(newBranch) => onRename(context, newBranch)}
                   onRemoveOrphan={() => onRemoveOrphan(context)}
@@ -646,6 +656,7 @@ function ContextRow({
   context,
   index,
   busy,
+  onFocus,
   onFocusPane,
   onRename,
   onRemoveOrphan,
@@ -654,6 +665,7 @@ function ContextRow({
   context: Context;
   index: number;
   busy: boolean;
+  onFocus: () => void;
   onFocusPane: (pane: AgentPane) => void;
   onRename: (newBranch: string) => void;
   onRemoveOrphan: () => void;
@@ -742,7 +754,14 @@ function ContextRow({
       )}
     >
       <DropGutter visible={canDrop && isOver && dropEdge === "before"} />
-      <div ref={handleRef} className="context-row">
+      <div
+        ref={handleRef}
+        className="context-row"
+        onClick={() => {
+          if (busy || isEditing || context.status === "orphan_tmux") return;
+          onFocus();
+        }}
+      >
         <div className="context-stack">
           <div className="context-main">
             <div className="context-head">
@@ -772,7 +791,8 @@ function ContextRow({
                 <button
                   type="button"
                   className="branch-label"
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.stopPropagation();
                     if (busy || context.status === "orphan_tmux") return;
                     setIsEditing(true);
                   }}
@@ -788,7 +808,10 @@ function ContextRow({
                   className="danger-icon"
                   aria-label={`Remove orphan ${context.branch}`}
                   disabled={busy}
-                  onClick={onRemoveOrphan}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRemoveOrphan();
+                  }}
                 >
                   <CloseIcon />
                 </button>
@@ -803,7 +826,10 @@ function ContextRow({
                   type="button"
                   className="agent-pane-row"
                   disabled={busy}
-                  onClick={() => onFocusPane(pane)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onFocusPane(pane);
+                  }}
                   aria-label={`Focus pane ${pane.paneId}`}
                 >
                   <div className="agent-pane-main">
@@ -940,6 +966,7 @@ function CloseIcon() {
     </svg>
   );
 }
+
 
 const root = document.getElementById("root");
 if (root) {

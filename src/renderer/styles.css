@@ -92,6 +92,15 @@ button.primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.icon-button:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
 }
 
 .workspace-frame {
@@ -269,8 +278,9 @@ button.primary {
 }
 
 .drag-handle:hover {
-  border-color: var(--line);
-  background: var(--panel-3);
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
 }
 
 .context-main {
@@ -452,9 +462,16 @@ button.primary {
   width: 30px;
   height: 30px;
   padding: 0;
-  border-color: #4a2a2a;
-  color: #d16b63;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
   line-height: 1;
+}
+
+.danger-icon:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--red);
 }
 
 .status {
