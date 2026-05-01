@@ -310,7 +310,7 @@ export async function renameManagedContext(
       : `title:${input.oldKittyTabTitle}`;
     await run(
       "kitty",
-      ["@", "set-tab-title", nextManagedName, "--match", tabMatch],
+      ["@", "set-tab-title", "--match", tabMatch, nextManagedName],
       cwd
     );
   } catch (error) {

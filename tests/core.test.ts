@@ -1292,7 +1292,7 @@ describe("renaming managed contexts", () => {
       },
       {
         file: "kitty",
-        args: ["@", "set-tab-title", "s_a_feature%2Frenamed-ui", "--match", "title:s_a_feature%2Fnotify-ui"],
+        args: ["@", "set-tab-title", "--match", "title:s_a_feature%2Fnotify-ui", "s_a_feature%2Frenamed-ui"],
         cwd: "/repo/a"
       }
     ]);
@@ -1321,7 +1321,7 @@ describe("renaming managed contexts", () => {
 
     expect(calls[2]).toEqual({
       file: "kitty",
-      args: ["@", "set-tab-title", "s_a_feature%2Frenamed-ui", "--match", "id:42"],
+      args: ["@", "set-tab-title", "--match", "id:42", "s_a_feature%2Frenamed-ui"],
       cwd: "/repo/a"
     });
   });
