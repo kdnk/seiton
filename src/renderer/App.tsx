@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { FiRefreshCw, FiSettings, FiX } from "react-icons/fi";
 import { createRoot } from "react-dom/client";
 import { DndProvider, useDrag, useDragLayer, useDrop } from "react-dnd";
 import { getEmptyImage, HTML5Backend } from "react-dnd-html5-backend";
@@ -359,7 +360,7 @@ export function App() {
               onClick={refresh}
               disabled={busy}
             >
-              ↻
+              <FiRefreshCw className="icon" size={15} aria-hidden="true" focusable="false" data-icon="reload" />
             </button>
             <button
               className="icon-button"
@@ -368,7 +369,7 @@ export function App() {
               onClick={() => setSettingsOpen(true)}
               disabled={busy}
             >
-              ⚙
+              <FiSettings className="icon" size={15} aria-hidden="true" focusable="false" data-icon="settings" />
             </button>
           </div>
         </header>
@@ -430,7 +431,7 @@ export function App() {
                   aria-label="Close settings"
                   onClick={() => setSettingsOpen(false)}
                 >
-                  <CloseIcon />
+                  <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
                 </button>
               </header>
               <div className="settings-body">
@@ -483,7 +484,7 @@ export function App() {
                   aria-label="Close shortcuts"
                   onClick={() => setShortcutsOpen(false)}
                 >
-                  <CloseIcon />
+                  <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
                 </button>
               </header>
               <dl className="shortcuts-list">
@@ -622,7 +623,7 @@ function ProjectSection({
               disabled={busy}
               onClick={() => onRemoveProjectRoot(project.root)}
             >
-              <CloseIcon />
+              <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
             </button>
           </div>
         </header>
@@ -822,7 +823,7 @@ function ContextRow({
                     onRemoveOrphan();
                   }}
                 >
-                  <CloseIcon />
+                  <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
                 </button>
               </div>
             ) : null}
@@ -955,27 +956,6 @@ function DragHandleIcon() {
     </svg>
   );
 }
-
-function CloseIcon() {
-  return (
-    <svg
-      className="icon"
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M4 4 L12 12" />
-      <path d="M12 4 L4 12" />
-    </svg>
-  );
-}
-
 
 const root = document.getElementById("root");
 if (root) {

@@ -689,7 +689,50 @@ describe("App", () => {
     await waitFor(() => {
     expect(installCliCommand).toHaveBeenCalled();
   });
-});
+  });
+
+  it("renders toolbar and modal controls with dedicated icons", async () => {
+    const refresh = vi.fn().mockResolvedValue({
+      projectsWithContexts: [],
+      warnings: []
+    });
+
+    window.seiton = {
+      refresh,
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue({
+        sourcePath: "/repo/a/dist-electron/cli.js",
+        targetPath: "/Users/kodai/.local/bin/seiton",
+        installed: true,
+        availableOnPath: true,
+        targetDirOnPath: true
+      }),
+      installCliCommand: vi.fn()
+    } as never;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "Reload" }).querySelector('[data-icon="reload"]')).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Open settings" }).querySelector('[data-icon="settings"]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "Close settings" }).querySelector('[data-icon="close"]')).not.toBeNull();
+  });
 
   it("does not render per-project sync buttons", async () => {
     window.seiton = {
