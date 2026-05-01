@@ -170,6 +170,7 @@ button.primary {
 
 .project-section header {
   background: rgba(255, 255, 255, 0.01);
+  align-items: flex-start;
 }
 
 .project-warnings {
