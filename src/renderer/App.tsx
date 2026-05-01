@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { FiRefreshCw, FiSettings, FiX } from "react-icons/fi";
 import { createRoot } from "react-dom/client";
 import { DndProvider, useDrag, useDragLayer, useDrop } from "react-dnd";
 import { getEmptyImage, HTML5Backend } from "react-dnd-html5-backend";
 import type { CliCommandStatus } from "../../electron/preload";
-import type { AgentPane, Context, ProjectContexts } from "../core/model";
+import type { AgentPane, Context, ProjectContexts, WorkspaceSession } from "../core/model";
 import "./styles.css";
 
 type ViewState = {
@@ -36,6 +37,14 @@ const previewState: ViewState = {
         projectKey: "%2FUsers%2Fkodai%2Fworkspaces%2Fgithub.com%2Fkdnk%2Fseiton",
         order: 10,
         enabled: true
+      },
+      workspaceSession: {
+        type: "workspace",
+        projectRoot: "/Users/kodai/workspaces/github.com/kdnk/seiton",
+        name: "seiton",
+        kittyTabTitle: "seiton",
+        agentPanes: [],
+        status: "ready"
       },
       contexts: [
         {
@@ -88,6 +97,7 @@ const previewState: ViewState = {
         order: 20,
         enabled: true
       },
+      workspaceSession: undefined,
       contexts: [
         {
           id: "ctx-3",
@@ -186,6 +196,9 @@ export function App() {
       if (key === "r") {
         event.preventDefault();
         void refresh();
+      } else if (key === ",") {
+        event.preventDefault();
+        setSettingsOpen(true);
       } else if (key === "o") {
         event.preventDefault();
         void addProjectRoot();
@@ -251,6 +264,12 @@ export function App() {
     await refresh();
   }
 
+  async function focusWorkspaceSession(projectRoot: string, paneId?: string) {
+    if (!window.seiton?.focusWorkspaceSession) return;
+    await window.seiton.focusWorkspaceSession(projectRoot, paneId);
+    await refresh();
+  }
+
   async function focusPane(context: Context, pane: AgentPane) {
     if (!window.seiton) return;
     await window.seiton.focus(context.projectRoot, context.branchKey, pane.paneId);
@@ -298,6 +317,16 @@ export function App() {
       setState(await window.seiton.removeProjectRoot(root));
     } catch (error) {
       if (!handleMissingHandler(error)) throw error;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createWorkspaceSession(projectRoot: string) {
+    if (!window.seiton?.createWorkspaceSession) return;
+    setBusy(true);
+    try {
+      setState(await window.seiton.createWorkspaceSession(projectRoot));
     } finally {
       setBusy(false);
     }
@@ -359,16 +388,22 @@ export function App() {
               onClick={refresh}
               disabled={busy}
             >
-              ↻
+              <FiRefreshCw
+                className={classNames("icon", busy && "spinning")}
+                size={15}
+                aria-hidden="true"
+                focusable="false"
+                data-icon="reload"
+              />
             </button>
             <button
               className="icon-button"
               aria-label="Open settings"
-              title="Settings (⌘/ for shortcuts)"
+              title="Settings (⌘,)"
               onClick={() => setSettingsOpen(true)}
               disabled={busy}
             >
-              ⚙
+              <FiSettings className="icon" size={15} aria-hidden="true" focusable="false" data-icon="settings" />
             </button>
           </div>
         </header>
@@ -398,9 +433,11 @@ export function App() {
                 onMoveProject={moveProject}
                 onMoveContext={moveContext}
                 onFocus={focusContext}
+                onFocusWorkspaceSession={focusWorkspaceSession}
                 onFocusPane={focusPane}
                 onRename={renameContext}
                 onRemoveOrphan={removeOrphan}
+                onCreateWorkspaceSession={createWorkspaceSession}
                 onRemoveProjectRoot={removeProjectRoot}
               />
             ))}
@@ -426,11 +463,11 @@ export function App() {
               <header>
                 <h2>Settings</h2>
                 <button
-                  className="icon-button"
+                  className="icon-button settings-close-button"
                   aria-label="Close settings"
                   onClick={() => setSettingsOpen(false)}
                 >
-                  <CloseIcon />
+                  <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
                 </button>
               </header>
               <div className="settings-body">
@@ -483,13 +520,17 @@ export function App() {
                   aria-label="Close shortcuts"
                   onClick={() => setShortcutsOpen(false)}
                 >
-                  <CloseIcon />
+                  <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
                 </button>
               </header>
               <dl className="shortcuts-list">
                 <div className="shortcut-row">
                   <dt><kbd>⌘</kbd> <kbd>R</kbd></dt>
                   <dd>Reload</dd>
+                </div>
+                <div className="shortcut-row">
+                  <dt><kbd>⌘</kbd> <kbd>,</kbd></dt>
+                  <dd>Open settings</dd>
                 </div>
                 <div className="shortcut-row">
                   <dt><kbd>⌘</kbd> <kbd>O</kbd></dt>
@@ -519,9 +560,11 @@ function ProjectSection({
   onMoveProject,
   onMoveContext,
   onFocus,
+  onFocusWorkspaceSession,
   onFocusPane,
   onRename,
   onRemoveOrphan,
+  onCreateWorkspaceSession,
   onRemoveProjectRoot
 }: {
   projectWithContexts: ProjectContexts;
@@ -530,12 +573,14 @@ function ProjectSection({
   onMoveProject: (from: number, to: number) => void;
   onMoveContext: (projectRoot: string, from: number, to: number) => void;
   onFocus: (context: Context) => void;
+  onFocusWorkspaceSession: (projectRoot: string, paneId?: string) => void;
   onFocusPane: (context: Context, pane: AgentPane) => void;
   onRename: (context: Context, newBranch: string) => void;
   onRemoveOrphan: (context: Context) => void;
+  onCreateWorkspaceSession: (projectRoot: string) => void;
   onRemoveProjectRoot: (root: string) => void;
 }) {
-  const { project, contexts } = projectWithContexts;
+  const { project, workspaceSession, contexts } = projectWithContexts;
   const warnings = projectWithContexts.warnings ?? [];
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLButtonElement | null>(null);
@@ -622,7 +667,7 @@ function ProjectSection({
               disabled={busy}
               onClick={() => onRemoveProjectRoot(project.root)}
             >
-              <CloseIcon />
+              <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
             </button>
           </div>
         </header>
@@ -636,6 +681,13 @@ function ProjectSection({
           </section>
         ) : (
           <div className="rows">
+            <WorkspaceSessionSection
+              projectRoot={project.root}
+              workspaceSession={workspaceSession}
+              busy={busy}
+              onFocus={onFocusWorkspaceSession}
+              onCreate={onCreateWorkspaceSession}
+            />
             {contexts.length === 0 ? (
               <p className="empty-message">No managed contexts in this project.</p>
             ) : (
@@ -658,6 +710,77 @@ function ProjectSection({
       </section>
       <DropGutter visible={canDrop && isOver && dropEdge === "after"} />
     </div>
+  );
+}
+
+function WorkspaceSessionSection({
+  projectRoot,
+  workspaceSession,
+  busy,
+  onFocus,
+  onCreate
+}: {
+  projectRoot: string;
+  workspaceSession: WorkspaceSession | undefined;
+  busy: boolean;
+  onFocus: (projectRoot: string, paneId?: string) => void;
+  onCreate: (projectRoot: string) => void;
+}) {
+  const sessionName = workspaceSession?.name ?? projectRoot.split("/").filter(Boolean).at(-1) ?? projectRoot;
+
+  return (
+    <button
+      type="button"
+      className={classNames("context-row", "workspace-session-row", !workspaceSession && "workspace-session-missing")}
+      aria-label={`Open workspace session ${sessionName}`}
+      disabled={busy}
+      onClick={() => {
+        if (workspaceSession) {
+          onFocus(projectRoot);
+        } else {
+          onCreate(projectRoot);
+        }
+      }}
+    >
+      <div className="context-stack">
+        <div className="context-main">
+          <div className="context-head">
+            <span className="agent-pane-badge workspace-session-badge">Workspace Session</span>
+            {workspaceSession && workspaceSession.status !== "ready" ? (
+              <span className={`status ${workspaceSession.status}`}>{workspaceSession.status}</span>
+            ) : null}
+            <strong>{sessionName}</strong>
+          </div>
+        </div>
+        {!workspaceSession ? (
+          <p className="workspace-session-hint">No workspace session yet. Click to create one.</p>
+        ) : workspaceSession.agentPanes.length > 0 ? (
+          <div className="agent-pane-list">
+            {workspaceSession.agentPanes.map((pane) => (
+              <button
+                key={pane.paneId}
+                type="button"
+                className="agent-pane-row"
+                disabled={busy}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onFocus(projectRoot, pane.paneId);
+                }}
+                aria-label={`Focus workspace pane ${pane.paneId}`}
+              >
+                <div className="agent-pane-main">
+                  <span className="agent-pane-badge">{pane.agent}</span>
+                  <span className={`status codex-status ${pane.status}`}>{pane.status}</span>
+                  <strong>{pane.command}</strong>
+                  <small>{pane.paneId}</small>
+                </div>
+                <p className="agent-pane-line">{pane.lastLine}</p>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </button>
   );
 }
 
@@ -822,7 +945,7 @@ function ContextRow({
                     onRemoveOrphan();
                   }}
                 >
-                  <CloseIcon />
+                  <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
                 </button>
               </div>
             ) : null}
@@ -955,27 +1078,6 @@ function DragHandleIcon() {
     </svg>
   );
 }
-
-function CloseIcon() {
-  return (
-    <svg
-      className="icon"
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M4 4 L12 12" />
-      <path d="M12 4 L4 12" />
-    </svg>
-  );
-}
-
 
 const root = document.getElementById("root");
 if (root) {

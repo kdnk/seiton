@@ -83,6 +83,21 @@ export type Context = {
   status: ContextStatus;
 };
 
+export type WorkspaceSessionStatus =
+  | "ready"
+  | "missing_tmux"
+  | "missing_kitty";
+
+export type WorkspaceSession = {
+  type: "workspace";
+  projectRoot: string;
+  name: string;
+  kittyTabTitle: string;
+  primaryPaneId?: string;
+  agentPanes: AgentPane[];
+  status: WorkspaceSessionStatus;
+};
+
 export type SyncInput = {
   projectRoot: string;
   branches: Branch[];
@@ -162,6 +177,11 @@ export function decodeBranchKey(branchKey: string): string {
 
 export function buildManagedName(projectRoot: string, branch: string): string {
   return `${MANAGED_PREFIX}${buildProjectSlug(projectRoot)}_${buildBranchKey(branch)}`;
+}
+
+export function buildWorkspaceSessionName(projectRoot: string): string {
+  const normalizedRoot = normalizeProjectRoot(projectRoot);
+  return normalizedRoot.split("/").filter(Boolean).at(-1) ?? normalizedRoot;
 }
 
 export function buildProjectSlug(projectRoot: string): string {
@@ -249,6 +269,7 @@ export function projectKeyFromManagedName(name: string): string | undefined {
 
 export type ProjectContexts = {
   project: RegistryProject;
+  workspaceSession: WorkspaceSession | undefined;
   contexts: Context[];
   warnings?: string[];
 };
@@ -268,7 +289,7 @@ export function detectAllContexts(
     .map((project) => {
       const projectSnapshot = snapshot.projects[project.root];
       if (!projectSnapshot) {
-        return { project, contexts: [], warnings: [] };
+        return { project, workspaceSession: undefined, contexts: [], warnings: [] };
       }
       const contexts = detectContexts({
         projectRoot: project.root,
@@ -278,7 +299,17 @@ export function detectAllContexts(
         agentPanesBySession: snapshot.agentPanesBySession,
         registry
       });
-      return { project, contexts, warnings: projectSnapshot.warnings };
+      return {
+        project,
+        workspaceSession: detectWorkspaceSession({
+          projectRoot: project.root,
+          tmuxSessions: snapshot.tmuxSessions,
+          kittyTabs: snapshot.kittyTabs,
+          agentPanesBySession: snapshot.agentPanesBySession
+        }),
+        contexts,
+        warnings: projectSnapshot.warnings
+      };
     });
 }
 
@@ -532,6 +563,35 @@ function statusForPresence(hasTmux: boolean, hasKitty: boolean): ContextStatus {
   if (hasTmux && hasKitty) return "ready";
   if (!hasTmux) return "missing_tmux";
   return "missing_kitty";
+}
+
+function workspaceStatusForPresence(
+  hasTmux: boolean,
+  hasKitty: boolean
+): WorkspaceSessionStatus {
+  if (hasTmux && hasKitty) return "ready";
+  if (!hasTmux) return "missing_tmux";
+  return "missing_kitty";
+}
+
+function detectWorkspaceSession(input: {
+  projectRoot: string;
+  tmuxSessions: string[];
+  kittyTabs: KittyTab[];
+  agentPanesBySession: Record<string, AgentPane[]>;
+}): WorkspaceSession | undefined {
+  const name = buildWorkspaceSessionName(input.projectRoot);
+  const hasTmux = input.tmuxSessions.includes(name);
+  const hasKitty = input.kittyTabs.some((tab) => tab.title === name);
+  if (!hasTmux && !hasKitty) return undefined;
+  return {
+    type: "workspace",
+    projectRoot: input.projectRoot,
+    name,
+    kittyTabTitle: name,
+    agentPanes: input.agentPanesBySession[name] ?? [],
+    status: workspaceStatusForPresence(hasTmux, hasKitty)
+  };
 }
 
 function findRegistryContext(

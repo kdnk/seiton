@@ -103,6 +103,20 @@ button.primary {
   color: var(--text);
 }
 
+.icon.spinning {
+  animation: icon-spin 0.85s linear infinite;
+}
+
+@keyframes icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .workspace-frame {
   display: grid;
   gap: 8px;
@@ -170,6 +184,7 @@ button.primary {
 
 .project-section header {
   background: rgba(255, 255, 255, 0.01);
+  align-items: flex-start;
 }
 
 .project-warnings {
@@ -237,6 +252,10 @@ button.primary {
   color: var(--muted);
 }
 
+.workspace-session-badge {
+  color: #8aa2c7;
+}
+
 .context-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -255,6 +274,29 @@ button.primary {
 .context-row:hover {
   border-color: var(--line);
   background: rgba(255, 255, 255, 0.015);
+}
+
+.workspace-session-row {
+  width: 100%;
+  margin-bottom: 4px;
+  background: rgba(20, 25, 35, 0.45);
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-session-row.workspace-session-missing {
+  border-style: dashed;
+}
+
+.workspace-session-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.workspace-session-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
 }
 
 .drag-handle {
@@ -569,6 +611,14 @@ button.primary {
 .settings-modal {
   width: min(36rem, 100%);
   overflow: hidden;
+}
+
+.settings-modal header {
+  align-items: flex-start;
+}
+
+.settings-close-button {
+  margin-left: auto;
 }
 
 .shortcuts-modal {

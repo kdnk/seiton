@@ -4,6 +4,8 @@ import {
   buildManagedName,
   buildProjectSlug,
   buildProjectKey,
+  buildWorkspaceSessionName,
+  detectAllContexts,
   detectContexts,
   ensureProject,
   planKittyOrderMoves,
@@ -20,7 +22,9 @@ import {
   parseTmuxCodexPanes,
   readAgentPanesFromTmux,
   readAgentPanesFromTmuxOptions,
+  createWorkspaceSession,
   focusContext,
+  focusWorkspaceSession,
   removeOrphanContext,
   renameManagedContext,
   readBranchesForProject,
@@ -78,6 +82,7 @@ describe("managed naming", () => {
     expect(buildManagedName("/repo/a", "feature/notify-ui")).toBe(
       "s_a_feature%2Fnotify-ui"
     );
+    expect(buildWorkspaceSessionName("/repo/a")).toBe("a");
   });
 
   it("builds stable project keys from directory paths", () => {
@@ -184,6 +189,57 @@ describe("project registry", () => {
 });
 
 describe("context detection", () => {
+  it("detects a workspace session by exact project directory name", () => {
+    const projectsWithContexts = detectAllContexts(registry, {
+      projects: {
+        "/repo/a": { branches: [], warnings: [] }
+      },
+      tmuxSessions: ["a"],
+      kittyTabs: [{ id: 1, title: "a", osWindowId: 100, index: 0 }],
+      agentPanesBySession: {
+        a: [
+          {
+            agent: "codex",
+            paneId: "%12",
+            command: "codex",
+            lastLine: "npm run dev",
+            status: "running"
+          }
+        ]
+      }
+    });
+
+    expect(projectsWithContexts[0]?.workspaceSession).toMatchObject({
+      type: "workspace",
+      projectRoot: "/repo/a",
+      name: "a",
+      kittyTabTitle: "a",
+      status: "ready",
+      agentPanes: [
+        expect.objectContaining({
+          paneId: "%12",
+          status: "running"
+        })
+      ]
+    });
+  });
+
+  it("marks a workspace session as missing kitty when only tmux exists", () => {
+    const projectsWithContexts = detectAllContexts(registry, {
+      projects: {
+        "/repo/a": { branches: [], warnings: [] }
+      },
+      tmuxSessions: ["a"],
+      kittyTabs: [],
+      agentPanesBySession: {}
+    });
+
+    expect(projectsWithContexts[0]?.workspaceSession).toMatchObject({
+      name: "a",
+      status: "missing_kitty"
+    });
+  });
+
   it("detects claude panes from agent-backed session state", () => {
     const contexts = detectContexts({
       projectRoot: "/repo/a",
@@ -842,7 +898,7 @@ describe("codex pane command labels", () => {
 });
 
 describe("focusing contexts", () => {
-  it("creates missing kitty tab during focus", async () => {
+  it("creates a missing kitty tab during focus without retargeting the current tmux client", async () => {
     const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
     const exec: ExecFunction = async (file, args, cwd) => {
       calls.push({ file, args, cwd });
@@ -878,11 +934,6 @@ describe("focusing contexts", () => {
         args: ["@", "launch", "--type=tab", "--tab-title", "s_a_feature%2Fnotify-ui", "tmux", "new-session", "-A", "-s", "s_a_feature%2Fnotify-ui"],
         cwd: "/repo/a"
       },
-      {
-        file: "tmux",
-        args: ["switch-client", "-t", "s_a_feature%2Fnotify-ui"],
-        cwd: "/repo/a"
-      }
     ]);
   });
 
@@ -978,7 +1029,7 @@ describe("focusing contexts", () => {
     ]);
   });
 
-  it("creates missing tmux session and kitty tab during focus", async () => {
+  it("creates missing tmux session and kitty tab during focus without retargeting the current tmux client", async () => {
     const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
     const exec: ExecFunction = async (file, args, cwd) => {
       calls.push({ file, args, cwd });
@@ -1014,15 +1065,10 @@ describe("focusing contexts", () => {
         args: ["@", "launch", "--type=tab", "--tab-title", "s_a_feature%2Fnotify-ui", "tmux", "new-session", "-A", "-s", "s_a_feature%2Fnotify-ui"],
         cwd: "/repo/a"
       },
-      {
-        file: "tmux",
-        args: ["switch-client", "-t", "s_a_feature%2Fnotify-ui"],
-        cwd: "/repo/a"
-      }
     ]);
   });
 
-  it("ignores tmux switch-client when there is no current tmux client", async () => {
+  it("skips tmux switch-client when kitty is available but no target tmux client can be resolved", async () => {
     const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
     const exec: ExecFunction = async (file, args, cwd) => {
       calls.push({ file, args, cwd });
@@ -1034,12 +1080,6 @@ describe("focusing contexts", () => {
       }
       if (file === "tmux" && args[0] === "list-clients") {
         return { stdout: "", stderr: "" };
-      }
-      if (file === "tmux" && args[0] === "switch-client") {
-        throw {
-          message: "Command failed: tmux switch-client -t s_a_feature%2Fnotify-ui",
-          stderr: "no current client\n"
-        };
       }
       throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
     };
@@ -1069,11 +1109,6 @@ describe("focusing contexts", () => {
         args: ["list-clients", "-F", "#{client_tty}\t#{session_name}\t#{client_pid}"],
         cwd: "/repo/a"
       },
-      {
-        file: "tmux",
-        args: ["switch-client", "-t", "s_a_feature%2Fnotify-ui"],
-        cwd: "/repo/a"
-      }
     ]);
   });
 
@@ -1192,6 +1227,186 @@ describe("focusing contexts", () => {
       }
     ]);
   });
+
+  it("does not switch the current tmux client when kitty is available but the target tab client cannot be resolved", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      if (file === "tmux" && args[0] === "has-session") {
+        return { stdout: "", stderr: "" };
+      }
+      if (file === "kitty" && args[1] === "focus-tab") {
+        return { stdout: "", stderr: "" };
+      }
+      if (file === "kitty" && args[1] === "ls") {
+        return {
+          stdout: JSON.stringify([
+            {
+              id: 1,
+              tabs: [
+                {
+                  id: 10,
+                  title: "s_a_feature%2Fnotify-ui",
+                  windows: [
+                    {
+                      is_active: true
+                    }
+                  ]
+                }
+              ]
+            }
+          ]),
+          stderr: ""
+        };
+      }
+      if (file === "tmux" && args[0] === "list-clients") {
+        return { stdout: "/dev/ttys007\ts_other\t9999\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "switch-client") {
+        throw new Error("switch-client should not be called");
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    await focusContext("/repo/a", "feature%2Fnotify-ui", undefined, "/repo/a", exec);
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["has-session", "-t", "s_a_feature%2Fnotify-ui"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "kitty",
+        args: ["@", "focus-tab", "--match", "title:s_a_feature%2Fnotify-ui"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "kitty",
+        args: ["@", "ls"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["list-clients", "-F", "#{client_tty}\t#{session_name}\t#{client_pid}"],
+        cwd: "/repo/a"
+      }
+    ]);
+  });
+
+  it("focuses a workspace session by project basename", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      if (file === "tmux" && args[0] === "has-session") {
+        return { stdout: "", stderr: "" };
+      }
+      if (file === "kitty" && args[1] === "focus-tab") {
+        return { stdout: "", stderr: "" };
+      }
+      if (file === "kitty" && args[1] === "ls") {
+        return {
+          stdout: JSON.stringify([
+            {
+              id: 1,
+              tabs: [
+                {
+                  id: 10,
+                  title: "a",
+                  windows: [
+                    {
+                      is_active: true,
+                      pid: 1234,
+                      foreground_processes: [{ pid: 1234 }]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]),
+          stderr: ""
+        };
+      }
+      if (file === "tmux" && args[0] === "list-clients") {
+        return { stdout: "/dev/ttys000\ta\t1234\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "switch-client") {
+        return { stdout: "", stderr: "" };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    await focusWorkspaceSession("/repo/a", undefined, "/repo/a", exec);
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["has-session", "-t", "a"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "kitty",
+        args: ["@", "focus-tab", "--match", "title:a"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "kitty",
+        args: ["@", "ls"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["list-clients", "-F", "#{client_tty}\t#{session_name}\t#{client_pid}"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["switch-client", "-c", "/dev/ttys000", "-t", "a"],
+        cwd: "/repo/a"
+      }
+    ]);
+  });
+});
+
+describe("creating workspace sessions", () => {
+  it("creates a workspace session from the project basename", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      if (file === "tmux" && args[0] === "has-session") {
+        throw new Error("can't find session");
+      }
+      if (file === "kitty" && args[1] === "focus-tab") {
+        throw new Error("No matching tabs");
+      }
+      return { stdout: "", stderr: "" };
+    };
+
+    await createWorkspaceSession("/repo/a", "/repo/a", exec);
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["has-session", "-t", "a"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["new-session", "-d", "-s", "a"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "kitty",
+        args: ["@", "focus-tab", "--match", "title:a"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "kitty",
+        args: ["@", "launch", "--type=tab", "--tab-title", "a", "tmux", "new-session", "-A", "-s", "a"],
+        cwd: "/repo/a"
+      }
+    ]);
+  });
 });
 
 describe("removing orphan contexts", () => {
@@ -1292,7 +1507,7 @@ describe("renaming managed contexts", () => {
       },
       {
         file: "kitty",
-        args: ["@", "set-tab-title", "s_a_feature%2Frenamed-ui", "--match", "title:s_a_feature%2Fnotify-ui"],
+        args: ["@", "set-tab-title", "--match", "title:s_a_feature%2Fnotify-ui", "s_a_feature%2Frenamed-ui"],
         cwd: "/repo/a"
       }
     ]);
@@ -1321,7 +1536,7 @@ describe("renaming managed contexts", () => {
 
     expect(calls[2]).toEqual({
       file: "kitty",
-      args: ["@", "set-tab-title", "s_a_feature%2Frenamed-ui", "--match", "id:42"],
+      args: ["@", "set-tab-title", "--match", "id:42", "s_a_feature%2Frenamed-ui"],
       cwd: "/repo/a"
     });
   });

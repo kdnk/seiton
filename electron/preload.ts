@@ -28,8 +28,12 @@ const api = {
     ipcRenderer.invoke("seiton:add-project-root") as Promise<SeitonState>,
   removeProjectRoot: (root: string) =>
     ipcRenderer.invoke("seiton:remove-project-root", root) as Promise<SeitonState>,
+  createWorkspaceSession: (projectRoot: string) =>
+    ipcRenderer.invoke("seiton:create-workspace-session", projectRoot) as Promise<SeitonState>,
   focus: (projectRoot: string, branchKey: string, paneId?: string) =>
     ipcRenderer.invoke("seiton:focus", { projectRoot, branchKey, paneId }) as Promise<void>,
+  focusWorkspaceSession: (projectRoot: string, paneId?: string) =>
+    ipcRenderer.invoke("seiton:focus-workspace-session", { projectRoot, paneId }) as Promise<void>,
   renameContext: (payload: {
     contextId: string;
     projectRoot: string;
