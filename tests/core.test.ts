@@ -842,7 +842,7 @@ describe("codex pane command labels", () => {
 });
 
 describe("focusing contexts", () => {
-  it("creates missing kitty tab during focus", async () => {
+  it("creates a missing kitty tab during focus without retargeting the current tmux client", async () => {
     const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
     const exec: ExecFunction = async (file, args, cwd) => {
       calls.push({ file, args, cwd });
@@ -878,11 +878,6 @@ describe("focusing contexts", () => {
         args: ["@", "launch", "--type=tab", "--tab-title", "s_a_feature%2Fnotify-ui", "tmux", "new-session", "-A", "-s", "s_a_feature%2Fnotify-ui"],
         cwd: "/repo/a"
       },
-      {
-        file: "tmux",
-        args: ["switch-client", "-t", "s_a_feature%2Fnotify-ui"],
-        cwd: "/repo/a"
-      }
     ]);
   });
 
@@ -978,7 +973,7 @@ describe("focusing contexts", () => {
     ]);
   });
 
-  it("creates missing tmux session and kitty tab during focus", async () => {
+  it("creates missing tmux session and kitty tab during focus without retargeting the current tmux client", async () => {
     const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
     const exec: ExecFunction = async (file, args, cwd) => {
       calls.push({ file, args, cwd });
@@ -1014,15 +1009,10 @@ describe("focusing contexts", () => {
         args: ["@", "launch", "--type=tab", "--tab-title", "s_a_feature%2Fnotify-ui", "tmux", "new-session", "-A", "-s", "s_a_feature%2Fnotify-ui"],
         cwd: "/repo/a"
       },
-      {
-        file: "tmux",
-        args: ["switch-client", "-t", "s_a_feature%2Fnotify-ui"],
-        cwd: "/repo/a"
-      }
     ]);
   });
 
-  it("ignores tmux switch-client when there is no current tmux client", async () => {
+  it("skips tmux switch-client when kitty is available but no target tmux client can be resolved", async () => {
     const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
     const exec: ExecFunction = async (file, args, cwd) => {
       calls.push({ file, args, cwd });
@@ -1034,12 +1024,6 @@ describe("focusing contexts", () => {
       }
       if (file === "tmux" && args[0] === "list-clients") {
         return { stdout: "", stderr: "" };
-      }
-      if (file === "tmux" && args[0] === "switch-client") {
-        throw {
-          message: "Command failed: tmux switch-client -t s_a_feature%2Fnotify-ui",
-          stderr: "no current client\n"
-        };
       }
       throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
     };
@@ -1069,11 +1053,6 @@ describe("focusing contexts", () => {
         args: ["list-clients", "-F", "#{client_tty}\t#{session_name}\t#{client_pid}"],
         cwd: "/repo/a"
       },
-      {
-        file: "tmux",
-        args: ["switch-client", "-t", "s_a_feature%2Fnotify-ui"],
-        cwd: "/repo/a"
-      }
     ]);
   });
 
@@ -1188,6 +1167,72 @@ describe("focusing contexts", () => {
       {
         file: "tmux",
         args: ["switch-client", "-c", "/dev/ttys009", "-t", "s_a_feature%2Fnotify-ui"],
+        cwd: "/repo/a"
+      }
+    ]);
+  });
+
+  it("does not switch the current tmux client when kitty is available but the target tab client cannot be resolved", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      if (file === "tmux" && args[0] === "has-session") {
+        return { stdout: "", stderr: "" };
+      }
+      if (file === "kitty" && args[1] === "focus-tab") {
+        return { stdout: "", stderr: "" };
+      }
+      if (file === "kitty" && args[1] === "ls") {
+        return {
+          stdout: JSON.stringify([
+            {
+              id: 1,
+              tabs: [
+                {
+                  id: 10,
+                  title: "s_a_feature%2Fnotify-ui",
+                  windows: [
+                    {
+                      is_active: true
+                    }
+                  ]
+                }
+              ]
+            }
+          ]),
+          stderr: ""
+        };
+      }
+      if (file === "tmux" && args[0] === "list-clients") {
+        return { stdout: "/dev/ttys007\ts_other\t9999\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "switch-client") {
+        throw new Error("switch-client should not be called");
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    await focusContext("/repo/a", "feature%2Fnotify-ui", undefined, "/repo/a", exec);
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["has-session", "-t", "s_a_feature%2Fnotify-ui"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "kitty",
+        args: ["@", "focus-tab", "--match", "title:s_a_feature%2Fnotify-ui"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "kitty",
+        args: ["@", "ls"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["list-clients", "-F", "#{client_tty}\t#{session_name}\t#{client_pid}"],
         cwd: "/repo/a"
       }
     ]);

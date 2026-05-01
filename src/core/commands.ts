@@ -249,14 +249,17 @@ export async function focusContext(
     ? await readTargetTmuxClientTtyForKittyTab(title, cwd, run)
     : undefined;
 
-  try {
-    const args = targetClientTty
-      ? ["switch-client", "-c", targetClientTty, "-t", title]
-      : ["switch-client", "-t", title];
-    await run("tmux", args, cwd);
-  } catch (error) {
-    if (!isNoCurrentTmuxClient(error)) {
-      throw error;
+  const shouldSwitchCurrentClient = !kittyAvailable;
+  if (targetClientTty || shouldSwitchCurrentClient) {
+    try {
+      const args = targetClientTty
+        ? ["switch-client", "-c", targetClientTty, "-t", title]
+        : ["switch-client", "-t", title];
+      await run("tmux", args, cwd);
+    } catch (error) {
+      if (!isNoCurrentTmuxClient(error)) {
+        throw error;
+      }
     }
   }
   if (paneId) {
