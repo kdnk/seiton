@@ -103,6 +103,20 @@ button.primary {
   color: var(--text);
 }
 
+.icon.spinning {
+  animation: icon-spin 0.85s linear infinite;
+}
+
+@keyframes icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .workspace-frame {
   display: grid;
   gap: 8px;

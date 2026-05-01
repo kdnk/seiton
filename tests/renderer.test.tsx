@@ -498,6 +498,40 @@ describe("App", () => {
     });
   });
 
+  it("opens settings with the keyboard shortcut", async () => {
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue({
+        sourcePath: "/repo/a/dist-electron/cli.js",
+        targetPath: "/Users/kodai/.local/bin/seiton",
+        installed: true,
+        availableOnPath: true,
+        targetDirOnPath: true
+      }),
+      installCliCommand: vi.fn(),
+      onStateUpdated: () => () => {}
+    } as never;
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Open settings" });
+    fireEvent.keyDown(window, { key: ",", metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    });
+  });
+
   it("removes an added project root", async () => {
     const removeProjectRoot = vi.fn().mockResolvedValue({
       projectsWithContexts: [],
@@ -722,6 +756,8 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
     });
 
+    expect(screen.getByRole("button", { name: "Reload" })).toHaveAttribute("title", "Reload (⌘R)");
+    expect(screen.getByRole("button", { name: "Open settings" })).toHaveAttribute("title", "Settings (⌘,)");
     expect(screen.getByRole("button", { name: "Reload" }).querySelector('[data-icon="reload"]')).not.toBeNull();
     expect(screen.getByRole("button", { name: "Open settings" }).querySelector('[data-icon="settings"]')).not.toBeNull();
 
@@ -732,6 +768,51 @@ describe("App", () => {
     });
 
     expect(screen.getByRole("button", { name: "Close settings" }).querySelector('[data-icon="close"]')).not.toBeNull();
+  });
+
+  it("animates the reload icon while refresh is in progress", async () => {
+    let resolveRefresh: ((value: { projectsWithContexts: []; warnings: [] }) => void) | undefined;
+    const refresh = vi.fn()
+      .mockResolvedValueOnce({ projectsWithContexts: [], warnings: [] })
+      .mockImplementation(
+        () =>
+          new Promise<{ projectsWithContexts: []; warnings: [] }>((resolve) => {
+            resolveRefresh = resolve;
+          })
+      );
+
+    window.seiton = {
+      refresh,
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
+    } as never;
+
+    render(<App />);
+
+    const reloadButton = await screen.findByRole("button", { name: "Reload" });
+    await waitFor(() => {
+      expect(reloadButton).not.toBeDisabled();
+    });
+
+    expect(reloadButton.querySelector('[data-icon="reload"]')?.classList.contains("spinning")).toBe(false);
+
+    fireEvent.click(reloadButton);
+
+    expect(refresh).toHaveBeenCalled();
+    expect(reloadButton.querySelector('[data-icon="reload"]')?.classList.contains("spinning")).toBe(true);
+
+    resolveRefresh?.({ projectsWithContexts: [], warnings: [] });
+
+    await waitFor(() => {
+      expect(reloadButton.querySelector('[data-icon="reload"]')?.classList.contains("spinning")).toBe(false);
+    });
   });
 
   it("does not render per-project sync buttons", async () => {

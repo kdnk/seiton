@@ -187,6 +187,9 @@ export function App() {
       if (key === "r") {
         event.preventDefault();
         void refresh();
+      } else if (key === ",") {
+        event.preventDefault();
+        setSettingsOpen(true);
       } else if (key === "o") {
         event.preventDefault();
         void addProjectRoot();
@@ -360,12 +363,18 @@ export function App() {
               onClick={refresh}
               disabled={busy}
             >
-              <FiRefreshCw className="icon" size={15} aria-hidden="true" focusable="false" data-icon="reload" />
+              <FiRefreshCw
+                className={classNames("icon", busy && "spinning")}
+                size={15}
+                aria-hidden="true"
+                focusable="false"
+                data-icon="reload"
+              />
             </button>
             <button
               className="icon-button"
               aria-label="Open settings"
-              title="Settings (⌘/ for shortcuts)"
+              title="Settings (⌘,)"
               onClick={() => setSettingsOpen(true)}
               disabled={busy}
             >
@@ -491,6 +500,10 @@ export function App() {
                 <div className="shortcut-row">
                   <dt><kbd>⌘</kbd> <kbd>R</kbd></dt>
                   <dd>Reload</dd>
+                </div>
+                <div className="shortcut-row">
+                  <dt><kbd>⌘</kbd> <kbd>,</kbd></dt>
+                  <dd>Open settings</dd>
                 </div>
                 <div className="shortcut-row">
                   <dt><kbd>⌘</kbd> <kbd>O</kbd></dt>
