@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { access, lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applySyncCommand, focusContext, readFullSystemSnapshot, readSystemSnapshotForCwd, removeOrphanContext, renameManagedContext } from "../src/core/commands";
+import { applySyncCommand, createWorkspaceSession, focusContext, focusWorkspaceSession, readFullSystemSnapshot, readSystemSnapshotForCwd, removeOrphanContext, renameManagedContext } from "../src/core/commands";
 import { watchLiveUpdates } from "../src/core/live-updates";
 import {
   buildBranchKey,
@@ -181,6 +181,19 @@ ipcMain.handle(
     await focusContext(payload.projectRoot, payload.branchKey, payload.paneId, payload.projectRoot);
   }
 );
+
+ipcMain.handle(
+  "seiton:focus-workspace-session",
+  async (_event, payload: { projectRoot: string; paneId?: string }) => {
+    await focusWorkspaceSession(payload.projectRoot, payload.paneId, payload.projectRoot);
+  }
+);
+
+ipcMain.handle("seiton:create-workspace-session", async (_event, projectRoot: string): Promise<AppState> => {
+  await createWorkspaceSession(projectRoot, projectRoot);
+  await focusWorkspaceSession(projectRoot, undefined, projectRoot);
+  return await getFullState();
+});
 
 ipcMain.handle(
   "seiton:rename-context",

@@ -133,6 +133,7 @@ describe("App", () => {
       projectsWithContexts: [
         {
           project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+          workspaceSession: undefined,
           contexts: [
             {
               id: "ctx-1",
@@ -189,6 +190,7 @@ describe("App", () => {
       projectsWithContexts: [
         {
           project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+          workspaceSession: undefined,
           contexts: [
             {
               id: "ctx-1",
@@ -321,6 +323,7 @@ describe("App", () => {
       projectsWithContexts: [
         {
           project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+          workspaceSession: undefined,
           contexts: [
             {
               id: "ctx-1",
@@ -532,6 +535,89 @@ describe("App", () => {
     });
   });
 
+  it("renders a workspace session row and focuses it", async () => {
+    const focusWorkspaceSession = vi.fn().mockResolvedValue(undefined);
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [
+          {
+            project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+            workspaceSession: {
+              type: "workspace",
+              projectRoot: "/repo/a",
+              name: "a",
+              kittyTabTitle: "a",
+              agentPanes: [],
+              status: "ready"
+            },
+            contexts: [],
+            warnings: []
+          }
+        ],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      createWorkspaceSession: vi.fn(),
+      focus: vi.fn(),
+      focusWorkspaceSession,
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn(),
+      onStateUpdated: () => () => {}
+    } as never;
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open workspace session a" }));
+
+    await waitFor(() => {
+      expect(focusWorkspaceSession).toHaveBeenCalledWith("/repo/a", undefined);
+    });
+  });
+
+  it("creates a workspace session when its row is clicked while missing", async () => {
+    const createWorkspaceSession = vi.fn().mockResolvedValue({
+      projectsWithContexts: [],
+      warnings: []
+    });
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({
+        projectsWithContexts: [
+          {
+            project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+            contexts: [],
+            warnings: []
+          }
+        ],
+        warnings: []
+      }),
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      createWorkspaceSession,
+      focus: vi.fn(),
+      focusWorkspaceSession: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn(),
+      onStateUpdated: () => () => {}
+    } as never;
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open workspace session a" }));
+
+    await waitFor(() => {
+      expect(createWorkspaceSession).toHaveBeenCalledWith("/repo/a");
+    });
+  });
+
   it("removes an added project root", async () => {
     const removeProjectRoot = vi.fn().mockResolvedValue({
       projectsWithContexts: [],
@@ -641,6 +727,7 @@ describe("App", () => {
       projectsWithContexts: [
         {
           project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+          workspaceSession: undefined,
           contexts: [
             {
               id: "ctx-1",

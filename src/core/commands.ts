@@ -4,7 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { appendActivityLog } from "./activity-log";
 import { emitLiveUpdate } from "./live-updates";
-import { buildManagedName, type AgentName, type AgentPane, type Branch, type KittyTab, type SyncCommand } from "./model";
+import { buildManagedName, buildWorkspaceSessionName, type AgentName, type AgentPane, type Branch, type KittyTab, type SyncCommand } from "./model";
 
 const execFileAsync = promisify(execFile);
 
@@ -205,6 +205,65 @@ export async function focusContext(
   run: ExecFunction = exec
 ): Promise<void> {
   const title = buildManagedName(projectRoot, decodeURIComponent(branchKey));
+  await focusSessionByName(title, paneId, cwd, run);
+}
+
+export async function focusWorkspaceSession(
+  projectRoot: string,
+  paneId?: string,
+  cwd = process.cwd(),
+  run: ExecFunction = exec
+): Promise<void> {
+  await focusSessionByName(buildWorkspaceSessionName(projectRoot), paneId, cwd, run);
+}
+
+export async function createWorkspaceSession(
+  projectRoot: string,
+  cwd = process.cwd(),
+  run: ExecFunction = exec
+): Promise<void> {
+  await ensureSessionResources(buildWorkspaceSessionName(projectRoot), cwd, run);
+}
+
+async function focusSessionByName(
+  title: string,
+  paneId: string | undefined,
+  cwd: string,
+  run: ExecFunction
+): Promise<void> {
+  const { hasKitty, kittyAvailable } = await ensureSessionResources(title, cwd, run);
+
+  const targetClientTty = kittyAvailable && hasKitty
+    ? await readTargetTmuxClientTtyForKittyTab(title, cwd, run)
+    : undefined;
+
+  const shouldSwitchCurrentClient = !kittyAvailable;
+  if (targetClientTty || shouldSwitchCurrentClient) {
+    try {
+      const args = targetClientTty
+        ? ["switch-client", "-c", targetClientTty, "-t", title]
+        : ["switch-client", "-t", title];
+      await run("tmux", args, cwd);
+    } catch (error) {
+      if (!isNoCurrentTmuxClient(error)) {
+        throw error;
+      }
+    }
+  }
+  if (paneId) {
+    const windowId = await readPaneWindowId(paneId, cwd, run);
+    if (windowId) {
+      await run("tmux", ["select-window", "-t", windowId], cwd);
+    }
+    await run("tmux", ["select-pane", "-t", paneId], cwd);
+  }
+}
+
+async function ensureSessionResources(
+  title: string,
+  cwd: string,
+  run: ExecFunction
+): Promise<{ hasKitty: boolean; kittyAvailable: boolean }> {
   let hasTmux = true;
   try {
     await run("tmux", ["has-session", "-t", title], cwd);
@@ -244,31 +303,7 @@ export async function focusContext(
       title
     ], cwd);
   }
-
-  const targetClientTty = kittyAvailable && hasKitty
-    ? await readTargetTmuxClientTtyForKittyTab(title, cwd, run)
-    : undefined;
-
-  const shouldSwitchCurrentClient = !kittyAvailable;
-  if (targetClientTty || shouldSwitchCurrentClient) {
-    try {
-      const args = targetClientTty
-        ? ["switch-client", "-c", targetClientTty, "-t", title]
-        : ["switch-client", "-t", title];
-      await run("tmux", args, cwd);
-    } catch (error) {
-      if (!isNoCurrentTmuxClient(error)) {
-        throw error;
-      }
-    }
-  }
-  if (paneId) {
-    const windowId = await readPaneWindowId(paneId, cwd, run);
-    if (windowId) {
-      await run("tmux", ["select-window", "-t", windowId], cwd);
-    }
-    await run("tmux", ["select-pane", "-t", paneId], cwd);
-  }
+  return { hasKitty, kittyAvailable };
 }
 
 export async function removeOrphanContext(
