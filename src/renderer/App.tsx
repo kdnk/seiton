@@ -463,7 +463,7 @@ export function App() {
               <header>
                 <h2>Settings</h2>
                 <button
-                  className="icon-button"
+                  className="icon-button settings-close-button"
                   aria-label="Close settings"
                   onClick={() => setSettingsOpen(false)}
                 >

@@ -613,6 +613,14 @@ button.primary {
   overflow: hidden;
 }
 
+.settings-modal header {
+  align-items: flex-start;
+}
+
+.settings-close-button {
+  margin-left: auto;
+}
+
 .shortcuts-modal {
   width: min(28rem, 100%);
   overflow: hidden;
