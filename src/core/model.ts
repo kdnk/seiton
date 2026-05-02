@@ -6,6 +6,12 @@ export type Branch = {
   id?: string;
 };
 
+export type TerminalBackendName = "kitty" | "wezterm";
+
+export type RegistrySettings = {
+  terminalBackend: TerminalBackendName;
+};
+
 export type RegistryContext = {
   id: string;
   projectRoot: string;
@@ -14,7 +20,7 @@ export type RegistryContext = {
   branchId?: string;
   pendingBranch?: string;
   tmuxSession: string;
-  kittyTabTitle: string;
+  terminalTabTitle: string;
   order: number;
   createdAt: string;
   updatedAt: string;
@@ -31,11 +37,12 @@ export type RegistryProject = {
 };
 
 export type Registry = {
+  settings?: RegistrySettings;
   projects?: RegistryProject[];
   contexts: RegistryContext[];
 };
 
-export type KittyTab = {
+export type TerminalTab = {
   id: number;
   title: string;
   osWindowId: number;
@@ -45,7 +52,7 @@ export type KittyTab = {
 export type ContextStatus =
   | "ready"
   | "missing_tmux"
-  | "missing_kitty"
+  | "missing_terminal"
   | "orphan_tmux"
   | "order_drift"
   | "rename_pending"
@@ -76,7 +83,7 @@ export type Context = {
   branchKey: string;
   branchId?: string;
   tmuxSession: string;
-  kittyTabTitle: string;
+  terminalTabTitle: string;
   primaryPaneId?: string;
   agentPanes: AgentPane[];
   order: number;
@@ -86,13 +93,13 @@ export type Context = {
 export type WorkspaceSessionStatus =
   | "ready"
   | "missing_tmux"
-  | "missing_kitty";
+  | "missing_terminal";
 
 export type WorkspaceSession = {
   type: "workspace";
   projectRoot: string;
   name: string;
-  kittyTabTitle: string;
+  terminalTabTitle: string;
   primaryPaneId?: string;
   agentPanes: AgentPane[];
   status: WorkspaceSessionStatus;
@@ -102,7 +109,8 @@ export type SyncInput = {
   projectRoot: string;
   branches: Branch[];
   tmuxSessions: string[];
-  kittyTabs: KittyTab[];
+  terminalTabs?: TerminalTab[];
+  kittyTabs?: TerminalTab[];
   agentPanesBySession: Record<string, AgentPane[]>;
   registry: Registry;
 };
@@ -114,9 +122,9 @@ export type SyncCommand =
       tmuxSession: string;
     }
   | {
-      type: "create_kitty_tab";
+      type: "create_terminal_tab";
       branch: string;
-      kittyTabTitle: string;
+      terminalTabTitle: string;
       tmuxSession: string;
     }
   | {
@@ -125,17 +133,17 @@ export type SyncCommand =
       newSession: string;
     }
   | {
-      type: "rename_kitty_tab";
+      type: "rename_terminal_tab";
       oldTitle: string;
       newTitle: string;
     }
   | {
-      type: "move_kitty_tab_backward";
-      kittyTabTitle: string;
+      type: "move_terminal_tab_backward";
+      terminalTabTitle: string;
     }
   | {
-      type: "move_kitty_tab_forward";
-      kittyTabTitle: string;
+      type: "move_terminal_tab_forward";
+      terminalTabTitle: string;
     };
 
 export type SyncPlan = {
@@ -279,7 +287,8 @@ export function detectAllContexts(
   snapshot: {
     projects: Record<string, { branches: Branch[]; warnings: string[] }>;
     tmuxSessions: string[];
-    kittyTabs: KittyTab[];
+    terminalTabs?: TerminalTab[];
+    kittyTabs?: TerminalTab[];
     agentPanesBySession: Record<string, AgentPane[]>;
   }
 ): ProjectContexts[] {
@@ -295,7 +304,7 @@ export function detectAllContexts(
         projectRoot: project.root,
         branches: projectSnapshot.branches,
         tmuxSessions: snapshot.tmuxSessions,
-        kittyTabs: snapshot.kittyTabs,
+        terminalTabs: readTerminalTabs(snapshot),
         agentPanesBySession: snapshot.agentPanesBySession,
         registry
       });
@@ -304,7 +313,7 @@ export function detectAllContexts(
         workspaceSession: detectWorkspaceSession({
           projectRoot: project.root,
           tmuxSessions: snapshot.tmuxSessions,
-          kittyTabs: snapshot.kittyTabs,
+          terminalTabs: readTerminalTabs(snapshot),
           agentPanesBySession: snapshot.agentPanesBySession
         }),
         contexts,
@@ -314,14 +323,15 @@ export function detectAllContexts(
 }
 
 export function detectContexts(input: SyncInput): Context[] {
+  const terminalTabs = readTerminalTabs(input);
   const scopedRegistry = scopeRegistry(input.registry, input.projectRoot);
   const contexts = input.branches.map((branch) => {
     const existing = findRegistryContext(scopedRegistry, branch);
     const branchKey = buildBranchKey(branch.name);
     const tmuxSession = buildManagedName(input.projectRoot, branch.name);
-    const kittyTabTitle = tmuxSession;
+    const terminalTabTitle = tmuxSession;
     const hasTmux = input.tmuxSessions.includes(tmuxSession);
-    const hasKitty = input.kittyTabs.some((tab) => tab.title === kittyTabTitle);
+    const hasTerminal = terminalTabs.some((tab) => tab.title === terminalTabTitle);
 
     const context: Context = {
       id: existing?.id ?? `branch:${branch.name}`,
@@ -330,10 +340,10 @@ export function detectContexts(input: SyncInput): Context[] {
       branch: branch.name,
       branchKey,
       tmuxSession,
-      kittyTabTitle,
+      terminalTabTitle,
       agentPanes: input.agentPanesBySession[tmuxSession] ?? [],
       order: existing?.order ?? nextOrder(scopedRegistry),
-      status: statusForPresence(hasTmux, hasKitty)
+      status: statusForPresence(hasTmux, hasTerminal)
     };
     if (branch.id) context.branchId = branch.id;
     return context;
@@ -356,7 +366,7 @@ export function detectContexts(input: SyncInput): Context[] {
       branch,
       branchKey: buildBranchKey(branch),
       tmuxSession: session,
-      kittyTabTitle: session,
+      terminalTabTitle: session,
       agentPanes: input.agentPanesBySession[session] ?? [],
       order: existing?.order ?? Number.MAX_SAFE_INTEGER,
       status: "orphan_tmux"
@@ -369,6 +379,7 @@ export function detectContexts(input: SyncInput): Context[] {
 }
 
 export function planSync(input: SyncInput): SyncPlan {
+  const terminalTabs = readTerminalTabs(input);
   const commands: SyncCommand[] = [];
   const warnings: string[] = [];
   const registryUpdates: RegistryContext[] = [];
@@ -397,12 +408,12 @@ export function planSync(input: SyncInput): SyncPlan {
     }
 
     if (
-      context.kittyTabTitle !== targetName &&
-      input.kittyTabs.some((tab) => tab.title === context.kittyTabTitle)
+      context.terminalTabTitle !== targetName &&
+      terminalTabs.some((tab) => tab.title === readContextTerminalTabTitle(context))
     ) {
       commands.push({
-        type: "rename_kitty_tab",
-        oldTitle: context.kittyTabTitle,
+        type: "rename_terminal_tab",
+        oldTitle: readContextTerminalTabTitle(context),
         newTitle: targetName
       });
     }
@@ -413,7 +424,7 @@ export function planSync(input: SyncInput): SyncPlan {
         branch: targetBranch,
         branchKey: buildBranchKey(targetBranch),
         tmuxSession: targetName,
-        kittyTabTitle: targetName
+        terminalTabTitle: targetName
       };
       delete update.pendingBranch;
       registryUpdates.push(update);
@@ -424,8 +435,8 @@ export function planSync(input: SyncInput): SyncPlan {
   for (const context of contexts) {
     if (context.status === "orphan_tmux") continue;
     const hasTmux = input.tmuxSessions.includes(context.tmuxSession);
-    const hasKitty = input.kittyTabs.some(
-      (tab) => tab.title === context.kittyTabTitle
+    const hasTerminal = terminalTabs.some(
+      (tab) => tab.title === context.terminalTabTitle
     );
 
     if (!hasTmux) {
@@ -436,17 +447,17 @@ export function planSync(input: SyncInput): SyncPlan {
       });
     }
 
-    if (!hasKitty) {
+    if (!hasTerminal) {
       commands.push({
-        type: "create_kitty_tab",
+        type: "create_terminal_tab",
         branch: context.branch,
-        kittyTabTitle: context.kittyTabTitle,
+        terminalTabTitle: context.terminalTabTitle,
         tmuxSession: context.tmuxSession
       });
     }
   }
 
-  const orderPlan = planKittyOrderMoves(input);
+  const orderPlan = planTerminalOrderMoves(input);
   commands.push(...orderPlan.commands);
   warnings.push(...orderPlan.warnings);
 
@@ -473,7 +484,7 @@ export function reconcileRegistry(input: ReconcileRegistryInput): Registry {
       branch: branch.name,
       branchKey,
       tmuxSession: buildManagedName(input.projectRoot, branch.name),
-      kittyTabTitle: buildManagedName(input.projectRoot, branch.name),
+      terminalTabTitle: buildManagedName(input.projectRoot, branch.name),
       order: nextOrder({ contexts: nextContexts.filter((candidate) => candidate.projectRoot === input.projectRoot) }),
       createdAt: input.now,
       updatedAt: input.now
@@ -485,11 +496,12 @@ export function reconcileRegistry(input: ReconcileRegistryInput): Registry {
   return { ...registryWithProject, contexts: nextContexts };
 }
 
-export function planKittyOrderMoves(input: SyncInput): {
+export function planTerminalOrderMoves(input: SyncInput): {
   commands: SyncCommand[];
   warnings: string[];
 } {
-  const managedTabs = input.kittyTabs
+  const terminalTabs = readTerminalTabs(input);
+  const managedTabs = terminalTabs
     .filter((tab) => isManagedName(tab.title))
     .sort((a, b) => a.index - b.index);
 
@@ -501,11 +513,11 @@ export function planKittyOrderMoves(input: SyncInput): {
   if (osWindowIds.size > 1) {
     return {
       commands: [],
-      warnings: ["Managed Kitty tabs are split across OS windows; order sync skipped."]
+      warnings: ["Managed terminal tabs are split across OS windows; order sync skipped."]
     };
   }
 
-  const allTabsInWindow = input.kittyTabs
+  const allTabsInWindow = terminalTabs
     .filter((tab) => tab.osWindowId === managedTabs[0]?.osWindowId)
     .sort((a, b) => a.index - b.index);
   const managedIndexes = managedTabs.map((tab) =>
@@ -518,7 +530,7 @@ export function planKittyOrderMoves(input: SyncInput): {
     return {
       commands: [],
       warnings: [
-        "Managed Kitty tabs are separated by unmanaged tabs; order sync skipped."
+        "Managed terminal tabs are separated by unmanaged tabs; order sync skipped."
       ]
     };
   }
@@ -538,7 +550,7 @@ export function planKittyOrderMoves(input: SyncInput): {
     if (currentIndex === -1) continue;
 
     while (currentIndex > expectedIndex) {
-      commands.push({ type: "move_kitty_tab_backward", kittyTabTitle: target });
+      commands.push({ type: "move_terminal_tab_backward", terminalTabTitle: target });
       [working[currentIndex - 1], working[currentIndex]] = [
         working[currentIndex] as string,
         working[currentIndex - 1] as string
@@ -547,7 +559,7 @@ export function planKittyOrderMoves(input: SyncInput): {
     }
 
     while (currentIndex < expectedIndex) {
-      commands.push({ type: "move_kitty_tab_forward", kittyTabTitle: target });
+      commands.push({ type: "move_terminal_tab_forward", terminalTabTitle: target });
       [working[currentIndex], working[currentIndex + 1]] = [
         working[currentIndex + 1] as string,
         working[currentIndex] as string
@@ -559,10 +571,13 @@ export function planKittyOrderMoves(input: SyncInput): {
   return { commands, warnings: [] };
 }
 
+export const planKittyOrderMoves = planTerminalOrderMoves;
+export type KittyTab = TerminalTab;
+
 function statusForPresence(hasTmux: boolean, hasKitty: boolean): ContextStatus {
   if (hasTmux && hasKitty) return "ready";
   if (!hasTmux) return "missing_tmux";
-  return "missing_kitty";
+  return "missing_terminal";
 }
 
 function workspaceStatusForPresence(
@@ -571,26 +586,28 @@ function workspaceStatusForPresence(
 ): WorkspaceSessionStatus {
   if (hasTmux && hasKitty) return "ready";
   if (!hasTmux) return "missing_tmux";
-  return "missing_kitty";
+  return "missing_terminal";
 }
 
 function detectWorkspaceSession(input: {
   projectRoot: string;
   tmuxSessions: string[];
-  kittyTabs: KittyTab[];
+  terminalTabs?: TerminalTab[];
+  kittyTabs?: TerminalTab[];
   agentPanesBySession: Record<string, AgentPane[]>;
 }): WorkspaceSession | undefined {
+  const terminalTabs = readTerminalTabs(input);
   const name = buildWorkspaceSessionName(input.projectRoot);
   const hasTmux = input.tmuxSessions.includes(name);
-  const hasKitty = input.kittyTabs.some((tab) => tab.title === name);
-  if (!hasTmux && !hasKitty) return undefined;
+  const hasTerminal = terminalTabs.some((tab) => tab.title === name);
+  if (!hasTmux && !hasTerminal) return undefined;
   return {
     type: "workspace",
     projectRoot: input.projectRoot,
     name,
-    kittyTabTitle: name,
+    terminalTabTitle: name,
     agentPanes: input.agentPanesBySession[name] ?? [],
-    status: workspaceStatusForPresence(hasTmux, hasKitty)
+    status: workspaceStatusForPresence(hasTmux, hasTerminal)
   };
 }
 
@@ -654,4 +671,14 @@ function expectedManagedNames(branches: Branch[], registry: Registry): string[] 
     .filter((context) => branchNames.has(context.branch))
     .sort((a, b) => a.order - b.order || a.branch.localeCompare(b.branch))
     .map((context) => buildManagedName(context.projectRoot, context.branch));
+}
+
+function readTerminalTabs(input: { terminalTabs?: TerminalTab[]; kittyTabs?: TerminalTab[] }): TerminalTab[] {
+  return input.terminalTabs ?? input.kittyTabs ?? [];
+}
+
+function readContextTerminalTabTitle(
+  context: RegistryContext & { kittyTabTitle?: string }
+): string {
+  return context.terminalTabTitle ?? context.kittyTabTitle ?? context.tmuxSession;
 }

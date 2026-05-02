@@ -538,7 +538,7 @@ button.primary {
 .status.running,
 .status.waiting,
 .status.order_drift,
-.status.missing_kitty,
+.status.missing_terminal,
 .status.missing_tmux,
 .status.rename_pending {
   background: var(--amber);
@@ -677,6 +677,11 @@ button.primary {
   gap: 10px;
 }
 
+.settings-group {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
 .settings-title {
   margin: 0;
   font-size: 0.94rem;
@@ -710,6 +715,28 @@ button.primary {
 .settings-actions {
   display: flex;
   gap: 8px;
+}
+
+.settings-radio-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settings-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.settings-radio input {
+  margin: 0;
 }
 
 .drag-layer {

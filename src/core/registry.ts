@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isPersistableProjectRoot, type Registry } from "./model";
+import { isPersistableProjectRoot, type Registry, type RegistryContext } from "./model";
 
 export function registryPath(appDataDir: string): string {
   return join(appDataDir, "registry.json");
@@ -9,7 +9,9 @@ export function registryPath(appDataDir: string): string {
 export async function loadRegistry(appDataDir: string): Promise<Registry> {
   try {
     const raw = await readFile(registryPath(appDataDir), "utf8");
-    const parsed = JSON.parse(raw) as Registry;
+    const parsed = JSON.parse(raw) as Registry & {
+      contexts?: Array<RegistryContext & { kittyTabTitle?: string }>;
+    };
     const projects = Array.isArray(parsed.projects)
       ? parsed.projects.filter((project) => (
           project &&
@@ -19,18 +21,23 @@ export async function loadRegistry(appDataDir: string): Promise<Registry> {
       : [];
     const projectRoots = new Set(projects.map((project) => project.root));
     return {
+      settings: {
+        terminalBackend: parsed.settings?.terminalBackend === "wezterm" ? "wezterm" : "kitty"
+      },
       projects,
       contexts: Array.isArray(parsed.contexts)
-        ? parsed.contexts.filter((context) => (
+        ? parsed.contexts
+          .filter((context) => (
             context &&
             typeof context.projectRoot === "string" &&
             projectRoots.has(context.projectRoot)
           ))
+          .map(normalizeContext)
         : []
     };
   } catch (error) {
     if (isMissingFile(error)) {
-      return { projects: [], contexts: [] };
+      return { settings: { terminalBackend: "kitty" }, projects: [], contexts: [] };
     }
     throw error;
   }
@@ -51,4 +58,13 @@ function isMissingFile(error: unknown): boolean {
     "code" in error &&
     error.code === "ENOENT"
   );
+}
+
+function normalizeContext(
+  context: RegistryContext & { kittyTabTitle?: string }
+): RegistryContext {
+  return {
+    ...context,
+    terminalTabTitle: context.terminalTabTitle ?? context.kittyTabTitle ?? context.tmuxSession
+  };
 }

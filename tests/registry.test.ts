@@ -17,7 +17,11 @@ describe("registry persistence", () => {
   it("returns an empty registry when the file does not exist", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "seiton-registry-"));
 
-    await expect(loadRegistry(tempDir)).resolves.toEqual({ projects: [], contexts: [] });
+    await expect(loadRegistry(tempDir)).resolves.toEqual({
+      settings: { terminalBackend: "kitty" },
+      projects: [],
+      contexts: []
+    });
   });
 
   it("saves registry JSON under the app data directory", async () => {
@@ -42,7 +46,7 @@ describe("registry persistence", () => {
           branch: "feature/a",
           branchKey: "feature%2Fa",
           tmuxSession: "seiton__%2Frepo%2Fa__feature%2Fa",
-          kittyTabTitle: "seiton__%2Frepo%2Fa__feature%2Fa",
+          terminalTabTitle: "seiton__%2Frepo%2Fa__feature%2Fa",
           order: 10,
           createdAt: "2026-04-24T10:00:00+09:00",
           updatedAt: "2026-04-24T10:00:00+09:00"
@@ -88,7 +92,7 @@ describe("registry persistence", () => {
           branch: "feature/a",
           branchKey: "feature%2Fa",
           tmuxSession: "seiton__%2Frepo%2Fa__feature%2Fa",
-          kittyTabTitle: "seiton__%2Frepo%2Fa__feature%2Fa",
+          terminalTabTitle: "seiton__%2Frepo%2Fa__feature%2Fa",
           order: 10,
           createdAt: "2026-04-24T10:00:00+09:00",
           updatedAt: "2026-04-24T10:00:00+09:00"
@@ -99,7 +103,7 @@ describe("registry persistence", () => {
           branch: "feature/root",
           branchKey: "feature%2Froot",
           tmuxSession: "seiton__%2F__feature%2Froot",
-          kittyTabTitle: "seiton__%2F__feature%2Froot",
+          terminalTabTitle: "seiton__%2F__feature%2Froot",
           order: 20,
           createdAt: "2026-04-24T10:00:00+09:00",
           updatedAt: "2026-04-24T10:00:00+09:00"
@@ -108,11 +112,52 @@ describe("registry persistence", () => {
     });
 
     await expect(loadRegistry(tempDir)).resolves.toEqual({
+      settings: { terminalBackend: "kitty" },
       projects: [
         expect.objectContaining({ root: "/repo/a", order: 10 })
       ],
       contexts: [
         expect.objectContaining({ id: "ctx-valid", projectRoot: "/repo/a" })
+      ]
+    });
+  });
+
+  it("loads legacy kitty tab titles into terminal tab titles", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "seiton-registry-"));
+
+    await saveRegistry(tempDir, {
+      projects: [
+        {
+          root: "/repo/a",
+          name: "a",
+          projectKey: "%2Frepo%2Fa",
+          order: 10,
+          enabled: true
+        }
+      ],
+      contexts: [
+        {
+          id: "ctx-legacy",
+          projectRoot: "/repo/a",
+          branch: "feature/a",
+          branchKey: "feature%2Fa",
+          tmuxSession: "seiton__%2Frepo%2Fa__feature%2Fa",
+          // legacy persisted key
+          kittyTabTitle: "seiton__%2Frepo%2Fa__feature%2Fa",
+          order: 10,
+          createdAt: "2026-04-24T10:00:00+09:00",
+          updatedAt: "2026-04-24T10:00:00+09:00"
+        } as never
+      ]
+    });
+
+    await expect(loadRegistry(tempDir)).resolves.toMatchObject({
+      settings: { terminalBackend: "kitty" },
+      contexts: [
+        expect.objectContaining({
+          id: "ctx-legacy",
+          terminalTabTitle: "seiton__%2Frepo%2Fa__feature%2Fa"
+        })
       ]
     });
   });

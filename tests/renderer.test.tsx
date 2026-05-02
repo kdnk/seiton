@@ -37,7 +37,7 @@ describe("App", () => {
                 branch: "feature/claude-notify",
                 branchKey: "feature%2Fclaude-notify",
                 tmuxSession: "s_a_feature%2Fclaude-notify",
-                kittyTabTitle: "s_a_feature%2Fclaude-notify",
+                terminalTabTitle: "s_a_feature%2Fclaude-notify",
                 agentPanes: [
                   {
                     agent: "claude",
@@ -89,7 +89,7 @@ describe("App", () => {
                 branch: "feature/claude-runtime",
                 branchKey: "feature%2Fclaude-runtime",
                 tmuxSession: "s_a_feature%2Fclaude-runtime",
-                kittyTabTitle: "s_a_feature%2Fclaude-runtime",
+                terminalTabTitle: "s_a_feature%2Fclaude-runtime",
                 agentPanes: [
                   {
                     agent: "claude",
@@ -142,7 +142,7 @@ describe("App", () => {
               branch: "feature/notify-ui",
               branchKey: "feature%2Fnotify-ui",
               tmuxSession: "s_a_feature%2Fnotify-ui",
-              kittyTabTitle: "s_a_feature%2Fnotify-ui",
+              terminalTabTitle: "s_a_feature%2Fnotify-ui",
               agentPanes: [],
               order: 10,
               status: "orphan_tmux"
@@ -200,7 +200,7 @@ describe("App", () => {
               branchKey: "feature%2Fnotify-ui",
               branchId: "ab",
               tmuxSession: "s_a_feature%2Fnotify-ui",
-              kittyTabTitle: "s_a_feature%2Fnotify-ui",
+              terminalTabTitle: "s_a_feature%2Fnotify-ui",
               agentPanes: [],
               order: 10,
               status: "ready"
@@ -234,13 +234,13 @@ describe("App", () => {
       expect(screen.getByText("feature/notify-ui")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rename feature/notify-ui" }));
 
     const input = await screen.findByRole("textbox", { name: "Rename feature/notify-ui" });
     fireEvent.change(input, {
       target: { value: "feature/renamed-ui" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.keyDown(input, { key: "Enter" });
 
     await waitFor(() => {
       expect(renameContext).toHaveBeenCalledWith({
@@ -249,7 +249,7 @@ describe("App", () => {
         branchId: "ab",
         oldBranch: "feature/notify-ui",
         oldTmuxSession: "s_a_feature%2Fnotify-ui",
-        oldKittyTabTitle: "s_a_feature%2Fnotify-ui",
+        oldTerminalTabTitle: "s_a_feature%2Fnotify-ui",
         newBranch: "feature/renamed-ui"
       });
     });
@@ -332,7 +332,7 @@ describe("App", () => {
               branch: "feature/notify-ui",
               branchKey: "feature%2Fnotify-ui",
               tmuxSession: "s_a_feature%2Fnotify-ui",
-              kittyTabTitle: "s_a_feature%2Fnotify-ui",
+              terminalTabTitle: "s_a_feature%2Fnotify-ui",
               agentPanes: [
                 {
                   agent: "codex",
@@ -400,7 +400,7 @@ describe("App", () => {
                 branch: "feature/claude-notify",
                 branchKey: "feature%2Fclaude-notify",
                 tmuxSession: "s_a_feature%2Fclaude-notify",
-                kittyTabTitle: "s_a_feature%2Fclaude-notify",
+                terminalTabTitle: "s_a_feature%2Fclaude-notify",
                 agentPanes: [
                   {
                     agent: "claude",
@@ -546,7 +546,7 @@ describe("App", () => {
               type: "workspace",
               projectRoot: "/repo/a",
               name: "a",
-              kittyTabTitle: "a",
+              terminalTabTitle: "a",
               agentPanes: [],
               status: "ready"
             },
@@ -736,7 +736,7 @@ describe("App", () => {
               branch: "feature/live-update",
               branchKey: "feature%2Flive-update",
               tmuxSession: "s_a_feature%2Flive-update",
-              kittyTabTitle: "s_a_feature%2Flive-update",
+              terminalTabTitle: "s_a_feature%2Flive-update",
               agentPanes: [],
               order: 10,
               status: "ready"
@@ -808,8 +808,52 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Install Command" }));
 
     await waitFor(() => {
-    expect(installCliCommand).toHaveBeenCalled();
+      expect(installCliCommand).toHaveBeenCalled();
+    });
   });
+
+  it("renders the terminal backend setting and saves wezterm selection", async () => {
+    const refresh = vi.fn().mockResolvedValue({
+      projectsWithContexts: [],
+      warnings: []
+    });
+    const getSettings = vi.fn().mockResolvedValue({ terminalBackend: "kitty" });
+    const updateSettings = vi.fn().mockResolvedValue({ terminalBackend: "wezterm" });
+
+    window.seiton = {
+      refresh,
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue({
+        sourcePath: "/repo/a/dist-electron/cli.js",
+        targetPath: "/Users/kodai/.local/bin/seiton",
+        installed: true,
+        availableOnPath: true,
+        targetDirOnPath: true
+      }),
+      installCliCommand: vi.fn(),
+      getSettings,
+      updateSettings
+    } as never;
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: "wezterm" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("radio", { name: "wezterm" }));
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith({ terminalBackend: "wezterm" });
+    });
   });
 
   it("renders toolbar and modal controls with dedicated icons", async () => {
@@ -843,6 +887,8 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
     });
 
+    expect(screen.getByRole("button", { name: "Add project" })).toHaveAttribute("title", "Add project (⌘O)");
+    expect(screen.getByRole("button", { name: "Add project" }).querySelector('[data-icon="add-project"]')).not.toBeNull();
     expect(screen.getByRole("button", { name: "Reload" })).toHaveAttribute("title", "Reload (⌘R)");
     expect(screen.getByRole("button", { name: "Open settings" })).toHaveAttribute("title", "Settings (⌘,)");
     expect(screen.getByRole("button", { name: "Reload" }).querySelector('[data-icon="reload"]')).not.toBeNull();
@@ -931,7 +977,7 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText("a")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "a" })).toBeInTheDocument();
     });
 
     expect(screen.queryByRole("button", { name: "Sync" })).not.toBeInTheDocument();
