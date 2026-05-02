@@ -141,6 +141,7 @@ export function App() {
     warnings: []
   });
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [lastSync, setLastSync] = useState<string>("not synced");
   const [cliStatus, setCliStatus] = useState<CliCommandStatus | null>(null);
   const [settings, setSettings] = useState<SeitonSettings>({ terminalBackend: "kitty" });
@@ -223,9 +224,11 @@ export function App() {
       return;
     }
     setBusy(true);
+    setRefreshing(true);
     try {
       setState(await window.seiton.refresh());
     } finally {
+      setRefreshing(false);
       setBusy(false);
     }
   }
@@ -416,7 +419,7 @@ export function App() {
               disabled={busy}
             >
               <FiRefreshCw
-                className={classNames("icon", busy && "spinning")}
+                className={classNames("icon", refreshing && "spinning")}
                 size={15}
                 aria-hidden="true"
                 focusable="false"

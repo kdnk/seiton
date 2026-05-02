@@ -948,6 +948,45 @@ describe("App", () => {
     });
   });
 
+  it("does not animate the reload icon while adding a project", async () => {
+    let resolveAddProjectRoot: ((value: { projectsWithContexts: []; warnings: [] }) => void) | undefined;
+    const addProjectRoot = vi.fn().mockImplementation(
+      () =>
+        new Promise<{ projectsWithContexts: []; warnings: [] }>((resolve) => {
+          resolveAddProjectRoot = resolve;
+        })
+    );
+
+    window.seiton = {
+      refresh: vi.fn().mockResolvedValue({ projectsWithContexts: [], warnings: [] }),
+      sync: vi.fn(),
+      addProjectRoot,
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
+    } as never;
+
+    render(<App />);
+
+    const addProjectButton = await screen.findByRole("button", { name: "Add project" });
+    const reloadButton = screen.getByRole("button", { name: "Reload" });
+
+    fireEvent.click(addProjectButton);
+
+    expect(addProjectRoot).toHaveBeenCalled();
+    expect(reloadButton.querySelector('[data-icon="reload"]')?.classList.contains("spinning")).toBe(false);
+
+    resolveAddProjectRoot?.({ projectsWithContexts: [], warnings: [] });
+
+    await waitFor(() => {
+      expect(addProjectButton).not.toBeDisabled();
+    });
+  });
+
   it("does not render per-project sync buttons", async () => {
     window.seiton = {
       refresh: vi.fn().mockResolvedValue({
