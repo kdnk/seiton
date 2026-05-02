@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { Context, ProjectContexts, RegistryProject, SyncCommand } from "../src/core/model";
+import type { ProjectContexts, SyncCommand, TerminalBackendName } from "../src/core/model";
 
 export type SeitonState = {
   projectsWithContexts: ProjectContexts[];
@@ -17,6 +17,10 @@ export type CliCommandStatus = {
 
 export type SeitonSyncState = SeitonState & {
   commands: SyncCommand[];
+};
+
+export type SeitonSettings = {
+  terminalBackend: TerminalBackendName;
 };
 
 const api = {
@@ -40,15 +44,19 @@ const api = {
     branchId?: string;
     oldBranch: string;
     oldTmuxSession: string;
-    oldKittyTabTitle: string;
+    oldTerminalTabTitle: string;
     newBranch: string;
   }) => ipcRenderer.invoke("seiton:rename-context", payload) as Promise<SeitonState>,
-  removeOrphan: (projectRoot: string, tmuxSession: string, kittyTabTitle: string) =>
-    ipcRenderer.invoke("seiton:remove-orphan", { projectRoot, tmuxSession, kittyTabTitle }) as Promise<SeitonState>,
+  removeOrphan: (projectRoot: string, tmuxSession: string, terminalTabTitle: string) =>
+    ipcRenderer.invoke("seiton:remove-orphan", { projectRoot, tmuxSession, terminalTabTitle }) as Promise<SeitonState>,
   reorderProjects: (from: number, to: number) =>
     ipcRenderer.invoke("seiton:reorder-projects", { from, to }) as Promise<SeitonState>,
   reorderContexts: (projectRoot: string, from: number, to: number) =>
     ipcRenderer.invoke("seiton:reorder-contexts", { projectRoot, from, to }) as Promise<SeitonState>,
+  getSettings: () =>
+    ipcRenderer.invoke("seiton:get-settings") as Promise<SeitonSettings>,
+  updateSettings: (input: Partial<SeitonSettings>) =>
+    ipcRenderer.invoke("seiton:update-settings", input) as Promise<SeitonSettings>,
   getCliCommandStatus: () =>
     ipcRenderer.invoke("seiton:get-cli-command-status") as Promise<CliCommandStatus>,
   installCliCommand: () =>

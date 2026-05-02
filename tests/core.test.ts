@@ -20,6 +20,7 @@ import {
   parseButBranches,
   parseTmuxClaudePanes,
   parseTmuxCodexPanes,
+  getTerminalBackend,
   readAgentPanesFromTmux,
   readAgentPanesFromTmuxOptions,
   createWorkspaceSession,
@@ -51,7 +52,7 @@ const registry: Registry = {
       branch: "feature/notify-ui",
       branchKey: "feature%2Fnotify-ui",
       tmuxSession: "s_a_feature%2Fnotify-ui",
-      kittyTabTitle: "s_a_feature%2Fnotify-ui",
+      terminalTabTitle: "s_a_feature%2Fnotify-ui",
       order: 10,
       createdAt: "2026-04-24T10:00:00+09:00",
       updatedAt: "2026-04-24T10:00:00+09:00"
@@ -68,7 +69,7 @@ function contextFixture(
     branch: "feature/fixture",
     branchKey: "feature%2Ffixture",
     tmuxSession: "s_a_feature%2Ffixture",
-    kittyTabTitle: "s_a_feature%2Ffixture",
+    terminalTabTitle: "s_a_feature%2Ffixture",
     order: 10,
     createdAt: "2026-04-24T10:00:00+09:00",
     updatedAt: "2026-04-24T10:00:00+09:00",
@@ -154,7 +155,7 @@ describe("project registry", () => {
             branch: "feature/a",
             branchKey: "feature%2Fa",
             tmuxSession: "s_a_feature%2Fa",
-            kittyTabTitle: "s_a_feature%2Fa"
+            terminalTabTitle: "s_a_feature%2Fa"
           }),
           contextFixture({
             id: "ctx-b",
@@ -162,7 +163,7 @@ describe("project registry", () => {
             branch: "feature/b",
             branchKey: "feature%2Fb",
             tmuxSession: "s_b_feature%2Fb",
-            kittyTabTitle: "s_b_feature%2Fb",
+            terminalTabTitle: "s_b_feature%2Fb",
             order: 20
           })
         ]
@@ -213,7 +214,7 @@ describe("context detection", () => {
       type: "workspace",
       projectRoot: "/repo/a",
       name: "a",
-      kittyTabTitle: "a",
+      terminalTabTitle: "a",
       status: "ready",
       agentPanes: [
         expect.objectContaining({
@@ -236,7 +237,7 @@ describe("context detection", () => {
 
     expect(projectsWithContexts[0]?.workspaceSession).toMatchObject({
       name: "a",
-      status: "missing_kitty"
+      status: "missing_terminal"
     });
   });
 
@@ -1407,6 +1408,65 @@ describe("creating workspace sessions", () => {
       }
     ]);
   });
+
+  it("creates and titles a wezterm tab for a workspace session", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      if (file === "tmux" && args[0] === "has-session") {
+        throw new Error("can't find session");
+      }
+      if (file === "wezterm" && args[1] === "list") {
+        return { stdout: "[]", stderr: "" };
+      }
+      if (file === "wezterm" && args[1] === "activate-tab") {
+        throw new Error("No matching wezterm tab: a");
+      }
+      if (file === "wezterm" && args[1] === "spawn") {
+        return { stdout: "42\n", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    };
+
+    await createWorkspaceSession("/repo/a", "/repo/a", exec, getTerminalBackend("wezterm"));
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["has-session", "-t", "a"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["new-session", "-d", "-s", "a"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "wezterm",
+        args: ["cli", "list", "--format", "json"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "wezterm",
+        args: [
+          "cli",
+          "spawn",
+          "--cwd",
+          "/repo/a",
+          "--",
+          "sh",
+          "-lc",
+          "printf '\\033]1;%s\\007\\033]2;%s\\007' 'a' 'a'; exec tmux new-session -A -s 'a'"
+        ],
+        cwd: "/repo/a"
+      },
+      {
+        file: "wezterm",
+        args: ["cli", "set-tab-title", "--pane-id", "42", "a"],
+        cwd: "/repo/a"
+      }
+    ]);
+  });
 });
 
 describe("removing orphan contexts", () => {
@@ -1418,7 +1478,7 @@ describe("removing orphan contexts", () => {
     };
 
     await removeOrphanContext(
-      { projectRoot: "/repo/a", tmuxSession: "s_a_feature%2Fnotify-ui", kittyTabTitle: "s_a_feature%2Fnotify-ui" },
+      { projectRoot: "/repo/a", tmuxSession: "s_a_feature%2Fnotify-ui", terminalTabTitle: "s_a_feature%2Fnotify-ui" },
       "/repo/a",
       exec
     );
@@ -1452,7 +1512,7 @@ describe("removing orphan contexts", () => {
 
     await expect(
       removeOrphanContext(
-        { projectRoot: "/repo/a", tmuxSession: "s_a_feature%2Fnotify-ui", kittyTabTitle: "s_a_feature%2Fnotify-ui" },
+        { projectRoot: "/repo/a", tmuxSession: "s_a_feature%2Fnotify-ui", terminalTabTitle: "s_a_feature%2Fnotify-ui" },
         "/repo/a",
         exec
       )
@@ -1488,7 +1548,7 @@ describe("renaming managed contexts", () => {
         oldBranch: "feature/notify-ui",
         newBranch: "feature/renamed-ui",
         oldTmuxSession: "s_a_feature%2Fnotify-ui",
-        oldKittyTabTitle: "s_a_feature%2Fnotify-ui"
+        oldTerminalTabTitle: "s_a_feature%2Fnotify-ui"
       },
       "/repo/a",
       exec
@@ -1527,8 +1587,8 @@ describe("renaming managed contexts", () => {
         oldBranch: "feature/notify-ui",
         newBranch: "feature/renamed-ui",
         oldTmuxSession: "s_a_feature%2Fnotify-ui",
-        oldKittyTabTitle: "s_a_feature%2Fnotify-ui",
-        oldKittyTabId: 42
+        oldTerminalTabTitle: "s_a_feature%2Fnotify-ui",
+        oldTerminalTabId: 42
       },
       "/repo/a",
       exec
@@ -1554,7 +1614,7 @@ describe("renaming managed contexts", () => {
         oldBranch: "feature/notify-ui",
         newBranch: "feature/renamed-ui",
         oldTmuxSession: "s_a_feature%2Fnotify-ui",
-        oldKittyTabTitle: "s_a_feature%2Fnotify-ui"
+        oldTerminalTabTitle: "s_a_feature%2Fnotify-ui"
       },
       "/repo/a",
       exec
@@ -1565,6 +1625,125 @@ describe("renaming managed contexts", () => {
       args: ["reword", "-m", "feature/renamed-ui", "feature/notify-ui"],
       cwd: "/repo/a"
     });
+  });
+
+  it("renames wezterm tab and pane titles together", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      if (file === "wezterm" && args[1] === "list") {
+        return {
+          stdout: JSON.stringify([
+            {
+              window_id: 1,
+              tab_id: 10,
+              pane_id: 42,
+              title: "tmux",
+              tab_title: "s_a_feature%2Fnotify-ui"
+            }
+          ]),
+          stderr: ""
+        };
+      }
+      return { stdout: "", stderr: "" };
+    };
+
+    await renameManagedContext(
+      {
+        projectRoot: "/repo/a",
+        branchId: "ab",
+        oldBranch: "feature/notify-ui",
+        newBranch: "feature/renamed-ui",
+        oldTmuxSession: "s_a_feature%2Fnotify-ui",
+        oldTerminalTabTitle: "s_a_feature%2Fnotify-ui"
+      },
+      "/repo/a",
+      exec,
+      getTerminalBackend("wezterm")
+    );
+
+    expect(calls).toEqual([
+      {
+        file: "but",
+        args: ["reword", "-m", "feature/renamed-ui", "ab"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "tmux",
+        args: ["rename-session", "-t", "s_a_feature%2Fnotify-ui", "s_a_feature%2Frenamed-ui"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "wezterm",
+        args: ["cli", "list", "--format", "json"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "wezterm",
+        args: ["cli", "set-tab-title", "--pane-id", "42", "s_a_feature%2Frenamed-ui"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "wezterm",
+        args: [
+          "cli",
+          "send-text",
+          "--pane-id",
+          "42",
+          "--no-paste",
+          "\u001b]1;s_a_feature%2Frenamed-ui\u0007\u001b]2;s_a_feature%2Frenamed-ui\u0007"
+        ],
+        cwd: "/repo/a"
+      }
+    ]);
+  });
+
+  it("focuses wezterm tabs by tab_title when pane title differs", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      if (file === "tmux" && args[0] === "has-session") {
+        return { stdout: "", stderr: "" };
+      }
+      if (file === "wezterm" && args[1] === "list") {
+        return {
+          stdout: JSON.stringify([
+            {
+              window_id: 1,
+              tab_id: 10,
+              pane_id: 42,
+              title: "tmux",
+              tab_title: "s_a_feature%2Fnotify-ui"
+            }
+          ]),
+          stderr: ""
+        };
+      }
+      if (file === "wezterm" && args[1] === "activate-tab") {
+        return { stdout: "", stderr: "" };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    await focusContext("/repo/a", "feature%2Fnotify-ui", undefined, "/repo/a", exec, getTerminalBackend("wezterm"));
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["has-session", "-t", "s_a_feature%2Fnotify-ui"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "wezterm",
+        args: ["cli", "list", "--format", "json"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "wezterm",
+        args: ["cli", "activate-tab", "--tab-id", "10"],
+        cwd: "/repo/a"
+      }
+    ]);
   });
 });
 
@@ -1584,7 +1763,7 @@ describe("registry reconciliation", () => {
       branchKey: "seiton-parser-test",
       branchId: "ei",
       tmuxSession: "s_b_seiton-parser-test",
-      kittyTabTitle: "s_b_seiton-parser-test",
+      terminalTabTitle: "s_b_seiton-parser-test",
       order: 10,
       createdAt: "2026-04-24T11:00:00+09:00",
       updatedAt: "2026-04-24T11:00:00+09:00"
@@ -1611,9 +1790,9 @@ describe("sync planning", () => {
         tmuxSession: "s_a_feature%2Fnotify-ui"
       },
       {
-        type: "create_kitty_tab",
+        type: "create_terminal_tab",
         branch: "feature/notify-ui",
-        kittyTabTitle: "s_a_feature%2Fnotify-ui",
+        terminalTabTitle: "s_a_feature%2Fnotify-ui",
         tmuxSession: "s_a_feature%2Fnotify-ui"
       }
     ]);
@@ -1638,7 +1817,7 @@ describe("sync planning", () => {
             branchId: "branch-1",
             pendingBranch: "feature/electron-name",
             tmuxSession: "s_a_feature%2Fold-name",
-            kittyTabTitle: "s_a_feature%2Fold-name",
+            terminalTabTitle: "s_a_feature%2Fold-name",
             order: 10,
             createdAt: "2026-04-24T10:00:00+09:00",
             updatedAt: "2026-04-24T10:00:00+09:00"
@@ -1691,8 +1870,8 @@ describe("Kitty order planning", () => {
 
     expect(moves).toEqual({
       commands: [
-        { type: "move_kitty_tab_backward", kittyTabTitle: "s_a_feature%2Fc" },
-        { type: "move_kitty_tab_backward", kittyTabTitle: "s_a_feature%2Fc" }
+        { type: "move_terminal_tab_backward", terminalTabTitle: "s_a_feature%2Fc" },
+        { type: "move_terminal_tab_backward", terminalTabTitle: "s_a_feature%2Fc" }
       ],
       warnings: []
     });
@@ -1719,7 +1898,7 @@ describe("Kitty order planning", () => {
 
     expect(moves.commands).toEqual([]);
     expect(moves.warnings).toEqual([
-      "Managed Kitty tabs are separated by unmanaged tabs; order sync skipped."
+      "Managed terminal tabs are separated by unmanaged tabs; order sync skipped."
     ]);
   });
 });

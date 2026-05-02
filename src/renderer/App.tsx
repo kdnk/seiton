@@ -3,7 +3,7 @@ import { FiRefreshCw, FiSettings, FiX } from "react-icons/fi";
 import { createRoot } from "react-dom/client";
 import { DndProvider, useDrag, useDragLayer, useDrop } from "react-dnd";
 import { getEmptyImage, HTML5Backend } from "react-dnd-html5-backend";
-import type { CliCommandStatus } from "../../electron/preload";
+import type { CliCommandStatus, SeitonSettings } from "../../electron/preload";
 import type { AgentPane, Context, ProjectContexts, WorkspaceSession } from "../core/model";
 import "./styles.css";
 
@@ -42,7 +42,7 @@ const previewState: ViewState = {
         type: "workspace",
         projectRoot: "/Users/kodai/workspaces/github.com/kdnk/seiton",
         name: "seiton",
-        kittyTabTitle: "seiton",
+        terminalTabTitle: "seiton",
         agentPanes: [],
         status: "ready"
       },
@@ -54,7 +54,7 @@ const previewState: ViewState = {
           branch: "feat/codex-hook-state",
           branchKey: "feat%2Fcodex-hook-state",
           tmuxSession: "s_seiton_feat%2Fcodex-hook-state",
-          kittyTabTitle: "s_seiton_feat%2Fcodex-hook-state",
+          terminalTabTitle: "s_seiton_feat%2Fcodex-hook-state",
           agentPanes: [
             {
               agent: "codex",
@@ -74,7 +74,7 @@ const previewState: ViewState = {
           branch: "chore/readme-refresh",
           branchKey: "chore%2Freadme-refresh",
           tmuxSession: "s_seiton_chore%2Freadme-refresh",
-          kittyTabTitle: "s_seiton_chore%2Freadme-refresh",
+          terminalTabTitle: "s_seiton_chore%2Freadme-refresh",
           agentPanes: [
             {
               agent: "codex",
@@ -85,7 +85,7 @@ const previewState: ViewState = {
             }
           ],
           order: 20,
-          status: "missing_kitty"
+          status: "missing_terminal"
         }
       ]
     },
@@ -106,7 +106,7 @@ const previewState: ViewState = {
           branch: "seiton-parser-test",
           branchKey: "seiton-parser-test",
           tmuxSession: "s_gbp_seiton-parser-test",
-          kittyTabTitle: "s_gbp_seiton-parser-test",
+          terminalTabTitle: "s_gbp_seiton-parser-test",
           agentPanes: [
             {
               agent: "codex",
@@ -143,6 +143,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [lastSync, setLastSync] = useState<string>("not synced");
   const [cliStatus, setCliStatus] = useState<CliCommandStatus | null>(null);
+  const [settings, setSettings] = useState<SeitonSettings>({ terminalBackend: "kitty" });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
@@ -163,6 +164,7 @@ export function App() {
   useEffect(() => {
     void refresh();
     void refreshCliStatus();
+    void refreshSettings();
   }, []);
 
   useEffect(() => {
@@ -248,6 +250,14 @@ export function App() {
     }
   }
 
+  async function refreshSettings() {
+    if (!window.seiton?.getSettings) {
+      setSettings({ terminalBackend: "kitty" });
+      return;
+    }
+    setSettings(await window.seiton.getSettings());
+  }
+
   async function addProjectRoot() {
     if (!window.seiton) return;
     setBusy(true);
@@ -283,7 +293,7 @@ export function App() {
       setState(await window.seiton.removeOrphan(
         context.projectRoot,
         context.tmuxSession,
-        context.kittyTabTitle
+        readContextTerminalTabTitle(context)
       ));
     } finally {
       setBusy(false);
@@ -299,7 +309,7 @@ export function App() {
         projectRoot: context.projectRoot,
         oldBranch: context.branch,
         oldTmuxSession: context.tmuxSession,
-        oldKittyTabTitle: context.kittyTabTitle,
+        oldTerminalTabTitle: readContextTerminalTabTitle(context),
         newBranch
       };
       setState(await window.seiton.renameContext(
@@ -374,6 +384,14 @@ export function App() {
     }
   }
 
+  async function updateTerminalBackend(terminalBackend: SeitonSettings["terminalBackend"]) {
+    if (!window.seiton?.updateSettings) {
+      setSettings({ terminalBackend });
+      return;
+    }
+    setSettings(await window.seiton.updateSettings({ terminalBackend }));
+  }
+
   return (
     <DndProvider backend={HTML5Backend}>
       <main className="app-shell">
@@ -381,6 +399,9 @@ export function App() {
 
         <header className="topbar">
           <div className="actions">
+            <button onClick={addProjectRoot} disabled={busy}>
+              Add project
+            </button>
             <button
               className="icon-button"
               aria-label="Reload"
@@ -471,6 +492,32 @@ export function App() {
                 </button>
               </header>
               <div className="settings-body">
+                <div className="settings-copy settings-group">
+                  <p className="settings-title">Terminal backend</p>
+                  <p className="settings-text">
+                    Choose the terminal Seiton controls for tab-focused workflows across all projects.
+                  </p>
+                  <div className="settings-radio-group" role="radiogroup" aria-label="Terminal backend">
+                    <label className="settings-radio">
+                      <input
+                        type="radio"
+                        name="terminal-backend"
+                        checked={settings.terminalBackend === "kitty"}
+                        onChange={() => void updateTerminalBackend("kitty")}
+                      />
+                      <span>kitty</span>
+                    </label>
+                    <label className="settings-radio">
+                      <input
+                        type="radio"
+                        name="terminal-backend"
+                        checked={settings.terminalBackend === "wezterm"}
+                        onChange={() => void updateTerminalBackend("wezterm")}
+                      />
+                      <span>wezterm</span>
+                    </label>
+                  </div>
+                </div>
                 <div className="settings-copy">
                   <p className="settings-title">Install `seiton` in PATH</p>
                   <p className="settings-text">
@@ -756,7 +803,7 @@ function WorkspaceSessionSection({
           <p className="workspace-session-hint">No workspace session yet. Click to create one.</p>
         ) : workspaceSession.agentPanes.length > 0 ? (
           <div className="agent-pane-list">
-            {workspaceSession.agentPanes.map((pane) => (
+            {workspaceSession.agentPanes.map((pane: AgentPane) => (
               <button
                 key={pane.paneId}
                 type="button"
@@ -1056,6 +1103,10 @@ function reorderArray<T>(items: T[], from: number, to: number): T[] {
 
 function classNames(...names: Array<string | false | null | undefined>): string {
   return names.filter(Boolean).join(" ");
+}
+
+function readContextTerminalTabTitle(context: Context & { kittyTabTitle?: string }): string {
+  return context.terminalTabTitle ?? context.kittyTabTitle ?? context.tmuxSession;
 }
 
 function DragHandleIcon() {

@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { access, lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applySyncCommand, createWorkspaceSession, focusContext, focusWorkspaceSession, readFullSystemSnapshot, readSystemSnapshotForCwd, removeOrphanContext, renameManagedContext } from "../src/core/commands";
+import { applySyncCommand, createWorkspaceSession, focusContext, focusWorkspaceSession, getTerminalBackend, readFullSystemSnapshot, readSystemSnapshotForCwd, removeOrphanContext, renameManagedContext } from "../src/core/commands";
 import { watchLiveUpdates } from "../src/core/live-updates";
 import {
   buildBranchKey,
@@ -13,10 +13,10 @@ import {
   reconcileRegistry,
   removeProject,
   type Branch,
-  type Context,
   type ProjectContexts,
   type Registry,
-  type SyncCommand
+  type SyncCommand,
+  type TerminalBackendName
 } from "../src/core/model";
 import { loadRegistry, saveRegistry } from "../src/core/registry";
 
@@ -40,6 +40,9 @@ type CliCommandStatus = {
 };
 
 type ProjectWarningMap = Record<string, string[]>;
+type SeitonSettings = {
+  terminalBackend: TerminalBackendName;
+};
 
 function broadcastState(state: AppState): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -86,20 +89,21 @@ async function createWindow(): Promise<void> {
 async function getFullState(): Promise<AppState> {
   const registry = await loadRegistry(app.getPath("userData"));
   const projectRoots = orderedProjectRoots(registry);
-  const snapshot = await readFullSystemSnapshot(projectRoots);
+  const snapshot = await readFullSystemSnapshot(projectRoots, getTerminalBackend(readTerminalBackendSetting(registry)));
   return buildAppState(registry, snapshot);
 }
 
 async function getReconciledFullState(): Promise<AppState> {
   const appData = app.getPath("userData");
   const loadedRegistry = await loadRegistry(appData);
-  const snapshot = await readFullSystemSnapshot(orderedProjectRoots(loadedRegistry));
+  const backend = getTerminalBackend(readTerminalBackendSetting(loadedRegistry));
+  const snapshot = await readFullSystemSnapshot(orderedProjectRoots(loadedRegistry), backend);
   const registry = await reconcileRegistryForAllProjects(appData, loadedRegistry, snapshot.projects);
   const projectRoots = (registry.projects ?? []).map((p) => p.root);
   const nextSnapshot =
     projectRoots.length === orderedProjectRoots(loadedRegistry).length
       ? snapshot
-      : await readFullSystemSnapshot(projectRoots);
+      : await readFullSystemSnapshot(projectRoots, getTerminalBackend(readTerminalBackendSetting(registry)));
   return buildAppState(registry, nextSnapshot);
 }
 
@@ -124,7 +128,7 @@ ipcMain.handle("seiton:sync", async (): Promise<AppState & { commands: SyncComma
 
   const state = buildAppState(
     registry,
-    await readFullSystemSnapshot(orderedProjectRoots(registry)),
+    await readFullSystemSnapshot(orderedProjectRoots(registry), getTerminalBackend(readTerminalBackendSetting(registry))),
     extraProjectWarnings
   );
 
@@ -135,7 +139,10 @@ ipcMain.handle("seiton:sync-project", async (_event, root: string): Promise<AppS
   const result = await syncProjectRoot(root);
   const state = buildAppState(
     result.registry,
-    await readFullSystemSnapshot(orderedProjectRoots(result.registry)),
+    await readFullSystemSnapshot(
+      orderedProjectRoots(result.registry),
+      getTerminalBackend(readTerminalBackendSetting(result.registry))
+    ),
     { [root]: result.projectWarnings }
   );
   return { ...state, commands: result.commands };
@@ -147,14 +154,15 @@ async function syncProjectRoot(
 ): Promise<{ registry: Registry; commands: SyncCommand[]; projectWarnings: string[] }> {
   const appData = app.getPath("userData");
   const loadedRegistry = sourceRegistry ?? await loadRegistry(appData);
-  const snapshot = await readSystemSnapshotForCwd(projectRoot);
+  const backend = getTerminalBackend(readTerminalBackendSetting(loadedRegistry));
+  const snapshot = await readSystemSnapshotForCwd(projectRoot, backend);
   const registry = await reconcileAndPersistRegistry(appData, loadedRegistry, projectRoot, snapshot.branches);
   const plan = planSync({ ...snapshot, registry, projectRoot });
   const projectWarnings = [...snapshot.warnings, ...plan.warnings];
 
   for (const command of plan.commands) {
     try {
-      await applySyncCommand(command, projectRoot);
+      await applySyncCommand(command, projectRoot, backend);
     } catch (error) {
       projectWarnings.push(`${command.type} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -178,20 +186,26 @@ async function syncProjectRoot(
 ipcMain.handle(
   "seiton:focus",
   async (_event, payload: { projectRoot: string; branchKey: string; paneId?: string }) => {
-    await focusContext(payload.projectRoot, payload.branchKey, payload.paneId, payload.projectRoot);
+    const registry = await loadRegistry(app.getPath("userData"));
+    const backend = getTerminalBackend(readTerminalBackendSetting(registry));
+    await focusContext(payload.projectRoot, payload.branchKey, payload.paneId, payload.projectRoot, undefined, backend);
   }
 );
 
 ipcMain.handle(
   "seiton:focus-workspace-session",
   async (_event, payload: { projectRoot: string; paneId?: string }) => {
-    await focusWorkspaceSession(payload.projectRoot, payload.paneId, payload.projectRoot);
+    const registry = await loadRegistry(app.getPath("userData"));
+    const backend = getTerminalBackend(readTerminalBackendSetting(registry));
+    await focusWorkspaceSession(payload.projectRoot, payload.paneId, payload.projectRoot, undefined, backend);
   }
 );
 
 ipcMain.handle("seiton:create-workspace-session", async (_event, projectRoot: string): Promise<AppState> => {
-  await createWorkspaceSession(projectRoot, projectRoot);
-  await focusWorkspaceSession(projectRoot, undefined, projectRoot);
+  const registry = await loadRegistry(app.getPath("userData"));
+  const backend = getTerminalBackend(readTerminalBackendSetting(registry));
+  await createWorkspaceSession(projectRoot, projectRoot, undefined, backend);
+  await focusWorkspaceSession(projectRoot, undefined, projectRoot, undefined, backend);
   return await getFullState();
 });
 
@@ -205,7 +219,7 @@ ipcMain.handle(
       branchId?: string;
       oldBranch: string;
       oldTmuxSession: string;
-      oldKittyTabTitle: string;
+      oldTerminalTabTitle: string;
       newBranch: string;
     }
   ): Promise<AppState> => {
@@ -219,7 +233,8 @@ ipcMain.handle(
 
     const appData = app.getPath("userData");
     const registry = await loadRegistry(appData);
-    const snapshot = await readSystemSnapshotForCwd(payload.projectRoot);
+    const backend = getTerminalBackend(readTerminalBackendSetting(registry));
+    const snapshot = await readSystemSnapshotForCwd(payload.projectRoot, backend);
     const nextManagedName = buildManagedName(payload.projectRoot, nextBranch);
 
     if (snapshot.branches.some((branch) => branch.name === nextBranch && branch.name !== payload.oldBranch)) {
@@ -229,10 +244,10 @@ ipcMain.handle(
       throw new Error(`tmux session already exists: ${nextManagedName}`);
     }
     if (
-      snapshot.kittyTabs.some((tab) => tab.title === nextManagedName) &&
-      payload.oldKittyTabTitle !== nextManagedName
+      snapshot.terminalTabs.some((tab) => tab.title === nextManagedName) &&
+      payload.oldTerminalTabTitle !== nextManagedName
     ) {
-      throw new Error(`kitty tab already exists: ${nextManagedName}`);
+      throw new Error(`terminal tab already exists: ${nextManagedName}`);
     }
 
     const renameInput = {
@@ -240,15 +255,17 @@ ipcMain.handle(
       oldBranch: payload.oldBranch,
       newBranch: nextBranch,
       oldTmuxSession: payload.oldTmuxSession,
-      oldKittyTabTitle: payload.oldKittyTabTitle,
+      oldTerminalTabTitle: payload.oldTerminalTabTitle,
       ...(() => {
-        const oldKittyTabId = snapshot.kittyTabs.find((tab) => tab.title === payload.oldKittyTabTitle)?.id;
-        return oldKittyTabId !== undefined ? { oldKittyTabId } : {};
+        const oldTerminalTabId = snapshot.terminalTabs.find((tab) => tab.title === payload.oldTerminalTabTitle)?.id;
+        return oldTerminalTabId !== undefined ? { oldTerminalTabId } : {};
       })()
     };
     await renameManagedContext(
       payload.branchId ? { ...renameInput, branchId: payload.branchId } : renameInput,
-      payload.projectRoot
+      payload.projectRoot,
+      undefined,
+      backend
     );
 
     const updatedAt = new Date().toISOString();
@@ -261,7 +278,7 @@ ipcMain.handle(
               branch: nextBranch,
               branchKey: buildBranchKey(nextBranch),
               tmuxSession: nextManagedName,
-              kittyTabTitle: nextManagedName,
+              terminalTabTitle: nextManagedName,
               updatedAt
             }
           : context
@@ -277,12 +294,33 @@ ipcMain.handle(
   "seiton:remove-orphan",
   async (
     _event,
-    payload: { projectRoot: string; tmuxSession: string; kittyTabTitle: string }
+    payload: { projectRoot: string; tmuxSession: string; terminalTabTitle: string }
   ): Promise<AppState> => {
-    await removeOrphanContext(payload, payload.projectRoot);
+    const registry = await loadRegistry(app.getPath("userData"));
+    const backend = getTerminalBackend(readTerminalBackendSetting(registry));
+    await removeOrphanContext(payload, payload.projectRoot, undefined, backend);
     return await getFullState();
   }
 );
+
+ipcMain.handle("seiton:get-settings", async (): Promise<SeitonSettings> => {
+  const registry = await loadRegistry(app.getPath("userData"));
+  return { terminalBackend: readTerminalBackendSetting(registry) };
+});
+
+ipcMain.handle("seiton:update-settings", async (_event, input: Partial<SeitonSettings>): Promise<SeitonSettings> => {
+  const appData = app.getPath("userData");
+  const registry = await loadRegistry(appData);
+  const terminalBackend = input.terminalBackend === "wezterm" ? "wezterm" : "kitty";
+  await saveRegistry(appData, {
+    ...registry,
+    settings: {
+      ...(registry.settings ?? { terminalBackend: "kitty" }),
+      terminalBackend
+    }
+  });
+  return { terminalBackend };
+});
 
 ipcMain.handle("seiton:add-project-root", async (): Promise<AppState> => {
   const result = await dialog.showOpenDialog({
@@ -426,6 +464,10 @@ function buildAppState(
     })),
     warnings: snapshot.globalWarnings
   };
+}
+
+function readTerminalBackendSetting(registry: Registry): TerminalBackendName {
+  return registry.settings?.terminalBackend === "wezterm" ? "wezterm" : "kitty";
 }
 
 async function getCliCommandStatus(): Promise<CliCommandStatus> {

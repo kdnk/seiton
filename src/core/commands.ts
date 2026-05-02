@@ -4,24 +4,19 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { appendActivityLog } from "./activity-log";
 import { emitLiveUpdate } from "./live-updates";
-import { buildManagedName, buildWorkspaceSessionName, type AgentName, type AgentPane, type Branch, type KittyTab, type SyncCommand } from "./model";
+import { buildManagedName, buildWorkspaceSessionName, type AgentName, type AgentPane, type Branch, type SyncCommand, type TerminalBackendName, type TerminalTab } from "./model";
+import type { CommandResult, ExecFunction, TerminalBackend } from "./terminal-backend";
+import { kittyBackend } from "./terminal-backends/kitty";
+import { weztermBackend } from "./terminal-backends/wezterm";
+
+export type { ExecFunction } from "./terminal-backend";
 
 const execFileAsync = promisify(execFile);
-
-export type ExecFunction = (
-  file: string,
-  args: string[],
-  cwd: string
-) => Promise<{ stdout: string; stderr: string }>;
-
-export type CommandResult<T> =
-  | { ok: true; value: T; warnings?: string[] }
-  | { ok: false; value: T; error: string; warnings?: string[] };
 
 export type SystemSnapshot = {
   branches: Branch[];
   tmuxSessions: string[];
-  kittyTabs: KittyTab[];
+  terminalTabs: TerminalTab[];
   agentPanesBySession: Record<string, AgentPane[]>;
   warnings: string[];
 };
@@ -29,7 +24,7 @@ export type SystemSnapshot = {
 export type FullSystemSnapshot = {
   projects: Record<string, { branches: Branch[]; warnings: string[] }>;
   tmuxSessions: string[];
-  kittyTabs: KittyTab[];
+  terminalTabs: TerminalTab[];
   agentPanesBySession: Record<string, AgentPane[]>;
   globalWarnings: string[];
 };
@@ -37,7 +32,7 @@ export type FullSystemSnapshot = {
 export type RemoveOrphanInput = {
   projectRoot: string;
   tmuxSession: string;
-  kittyTabTitle: string;
+  terminalTabTitle: string;
 };
 
 export type RenameManagedInput = {
@@ -46,8 +41,8 @@ export type RenameManagedInput = {
   oldBranch: string;
   newBranch: string;
   oldTmuxSession: string;
-  oldKittyTabTitle: string;
-  oldKittyTabId?: number;
+  oldTerminalTabTitle: string;
+  oldTerminalTabId?: number;
 };
 
 type PaneCandidate = {
@@ -55,17 +50,6 @@ type PaneCandidate = {
   paneId: string;
   currentCommand: string;
   startCommand: string;
-};
-
-type KittyTabClient = {
-  title: string;
-  activeWindowPid?: number;
-};
-
-type TmuxClient = {
-  tty: string;
-  sessionName: string;
-  pid?: number;
 };
 
 export type HookEnvironment = {
@@ -80,14 +64,21 @@ type HookNotifier = (payload: {
   cwd?: string;
 }) => Promise<void>;
 
+export function getTerminalBackend(name: TerminalBackendName): TerminalBackend {
+  return name === "wezterm" ? weztermBackend : kittyBackend;
+}
+
 export async function readSystemSnapshot(): Promise<SystemSnapshot> {
   return readSystemSnapshotForCwd(process.cwd());
 }
 
-export async function readFullSystemSnapshot(projectRoots: string[]): Promise<FullSystemSnapshot> {
-  const [tmuxSessions, kittyTabs, agentPanesBySession] = await Promise.all([
+export async function readFullSystemSnapshot(
+  projectRoots: string[],
+  backend: TerminalBackend = kittyBackend
+): Promise<FullSystemSnapshot> {
+  const [tmuxSessions, terminalTabs, agentPanesBySession] = await Promise.all([
     readTmuxSessions(process.cwd()),
-    readKittyTabs(process.cwd()),
+    readTerminalTabs(process.cwd(), backend),
     readAgentPanes(process.cwd())
   ]);
 
@@ -110,89 +101,70 @@ export async function readFullSystemSnapshot(projectRoots: string[]): Promise<Fu
   return {
     projects,
     tmuxSessions: tmuxSessions.value,
-    kittyTabs: kittyTabs.value,
+    terminalTabs: terminalTabs.value,
     agentPanesBySession: agentPanesBySession.value,
-    globalWarnings: [tmuxSessions, kittyTabs, agentPanesBySession]
+    globalWarnings: [tmuxSessions, terminalTabs, agentPanesBySession]
       .flatMap((result) => result.warnings ?? [])
-      .concat([tmuxSessions, kittyTabs, agentPanesBySession].flatMap((result) => (result.ok ? [] : [result.error])))
+      .concat([tmuxSessions, terminalTabs, agentPanesBySession].flatMap((result) => (result.ok ? [] : [result.error])))
   };
 }
 
-export async function readSystemSnapshotForCwd(cwd: string): Promise<SystemSnapshot> {
-  const [branches, tmuxSessions, kittyTabs, agentPanesBySession] = await Promise.all([
+export async function readSystemSnapshotForCwd(
+  cwd: string,
+  backend: TerminalBackend = kittyBackend
+): Promise<SystemSnapshot> {
+  const [branches, tmuxSessions, terminalTabs, agentPanesBySession] = await Promise.all([
     readBranches(cwd),
     readTmuxSessions(cwd),
-    readKittyTabs(cwd),
+    readTerminalTabs(cwd, backend),
     readAgentPanes(cwd)
   ]);
 
   return {
     branches: branches.value,
     tmuxSessions: tmuxSessions.value,
-    kittyTabs: kittyTabs.value,
+    terminalTabs: terminalTabs.value,
     agentPanesBySession: agentPanesBySession.value,
-    warnings: [branches, tmuxSessions, kittyTabs, agentPanesBySession]
+    warnings: [branches, tmuxSessions, terminalTabs, agentPanesBySession]
       .flatMap((result) => result.warnings ?? [])
-      .concat([branches, tmuxSessions, kittyTabs, agentPanesBySession].flatMap((result) => result.ok ? [] : [result.error]))
+      .concat([branches, tmuxSessions, terminalTabs, agentPanesBySession].flatMap((result) => result.ok ? [] : [result.error]))
   };
 }
 
 export async function applySyncCommand(
   command: SyncCommand,
-  cwd = process.cwd()
+  cwd = process.cwd(),
+  backend: TerminalBackend = kittyBackend,
+  run: ExecFunction = exec
 ): Promise<void> {
   switch (command.type) {
     case "create_tmux_session":
-      await exec("tmux", ["new-session", "-d", "-s", command.tmuxSession], cwd);
+      await run("tmux", ["new-session", "-d", "-s", command.tmuxSession], cwd);
       return;
-    case "create_kitty_tab":
-      await exec("kitty", [
-        "@",
-        "launch",
-        "--type=tab",
-        "--tab-title",
-        command.kittyTabTitle,
-        "tmux",
-        "new-session",
-        "-A",
-        "-s",
-        command.tmuxSession
-      ], cwd);
+    case "create_terminal_tab":
+      await backend.ensureTab({
+        title: command.terminalTabTitle,
+        tmuxSession: command.tmuxSession,
+        cwd,
+        run
+      });
       return;
     case "rename_tmux_session":
-      await exec("tmux", [
+      await run("tmux", [
         "rename-session",
         "-t",
         command.oldSession,
         command.newSession
       ], cwd);
       return;
-    case "rename_kitty_tab":
-      await exec("kitty", [
-        "@",
-        "set-tab-title",
-        command.newTitle,
-        "--match",
-        `title:${command.oldTitle}`
-      ], cwd);
+    case "rename_terminal_tab":
+      await backend.renameTab(command.oldTitle, command.newTitle, cwd, run);
       return;
-    case "move_kitty_tab_backward":
-      await exec("kitty", [
-        "@",
-        "focus-tab",
-        "--match",
-        `title:${command.kittyTabTitle}`
-      ], cwd);
-      await exec("kitty", ["@", "action", "move_tab_backward"], cwd);
+    case "move_terminal_tab_backward":
+      await backend.moveTabBackward(command.terminalTabTitle, cwd, run);
       return;
-    case "move_kitty_tab_forward":
-      await exec("kitty", [
-        "@",
-        "focus-tab",
-        "--match",
-        `title:${command.kittyTabTitle}`
-      ], cwd);
-      await exec("kitty", ["@", "action", "move_tab_forward"], cwd);
+    case "move_terminal_tab_forward":
+      await backend.moveTabForward(command.terminalTabTitle, cwd, run);
       return;
   }
 }
@@ -202,42 +174,46 @@ export async function focusContext(
   branchKey: string,
   paneId?: string,
   cwd = process.cwd(),
-  run: ExecFunction = exec
+  run: ExecFunction = exec,
+  backend: TerminalBackend = kittyBackend
 ): Promise<void> {
   const title = buildManagedName(projectRoot, decodeURIComponent(branchKey));
-  await focusSessionByName(title, paneId, cwd, run);
+  await focusSessionByName(title, paneId, cwd, run, backend);
 }
 
 export async function focusWorkspaceSession(
   projectRoot: string,
   paneId?: string,
   cwd = process.cwd(),
-  run: ExecFunction = exec
+  run: ExecFunction = exec,
+  backend: TerminalBackend = kittyBackend
 ): Promise<void> {
-  await focusSessionByName(buildWorkspaceSessionName(projectRoot), paneId, cwd, run);
+  await focusSessionByName(buildWorkspaceSessionName(projectRoot), paneId, cwd, run, backend);
 }
 
 export async function createWorkspaceSession(
   projectRoot: string,
   cwd = process.cwd(),
-  run: ExecFunction = exec
+  run: ExecFunction = exec,
+  backend: TerminalBackend = kittyBackend
 ): Promise<void> {
-  await ensureSessionResources(buildWorkspaceSessionName(projectRoot), cwd, run);
+  await ensureSessionResources(buildWorkspaceSessionName(projectRoot), cwd, run, backend);
 }
 
 async function focusSessionByName(
   title: string,
   paneId: string | undefined,
   cwd: string,
-  run: ExecFunction
+  run: ExecFunction,
+  backend: TerminalBackend
 ): Promise<void> {
-  const { hasKitty, kittyAvailable } = await ensureSessionResources(title, cwd, run);
+  const { hasTerminal, terminalAvailable } = await ensureSessionResources(title, cwd, run, backend);
 
-  const targetClientTty = kittyAvailable && hasKitty
-    ? await readTargetTmuxClientTtyForKittyTab(title, cwd, run)
+  const targetClientTty = terminalAvailable && hasTerminal
+    ? await backend.resolveTargetTmuxClientTty(title, cwd, run)
     : undefined;
 
-  const shouldSwitchCurrentClient = !kittyAvailable;
+  const shouldSwitchCurrentClient = !terminalAvailable;
   if (targetClientTty || shouldSwitchCurrentClient) {
     try {
       const args = targetClientTty
@@ -262,8 +238,9 @@ async function focusSessionByName(
 async function ensureSessionResources(
   title: string,
   cwd: string,
-  run: ExecFunction
-): Promise<{ hasKitty: boolean; kittyAvailable: boolean }> {
+  run: ExecFunction,
+  backend: TerminalBackend
+): Promise<{ hasTerminal: boolean; terminalAvailable: boolean }> {
   let hasTmux = true;
   try {
     await run("tmux", ["has-session", "-t", title], cwd);
@@ -275,46 +252,36 @@ async function ensureSessionResources(
     await run("tmux", ["new-session", "-d", "-s", title], cwd);
   }
 
-  let hasKitty = true;
-  let kittyAvailable = true;
+  let hasTerminal = true;
+  let terminalAvailable = true;
   try {
-    await run("kitty", ["@", "focus-tab", "--match", `title:${title}`], cwd);
+    await backend.focusTab(title, cwd, run);
   } catch (error) {
-    if (isKittyUnavailable(error)) {
-      kittyAvailable = false;
-    } else if (isNoMatchingKittyTab(error)) {
-      hasKitty = false;
+    if (backend.isUnavailableError(error)) {
+      terminalAvailable = false;
+    } else if (backend.isMissingTabError(error)) {
+      hasTerminal = false;
     } else {
       throw error;
     }
   }
 
-  if (kittyAvailable && !hasKitty) {
-    await run("kitty", [
-      "@",
-      "launch",
-      "--type=tab",
-      "--tab-title",
-      title,
-      "tmux",
-      "new-session",
-      "-A",
-      "-s",
-      title
-    ], cwd);
+  if (terminalAvailable && !hasTerminal) {
+    await backend.ensureTab({ title, tmuxSession: title, cwd, run });
   }
-  return { hasKitty, kittyAvailable };
+  return { hasTerminal, terminalAvailable };
 }
 
 export async function removeOrphanContext(
   input: RemoveOrphanInput,
   cwd = process.cwd(),
-  run: ExecFunction = exec
+  run: ExecFunction = exec,
+  backend: TerminalBackend = kittyBackend
 ): Promise<void> {
   try {
-    await run("kitty", ["@", "close-tab", "--match", `title:${input.kittyTabTitle}`], cwd);
+    await backend.closeTab(input.terminalTabTitle, cwd, run);
   } catch (error) {
-    if (!isNoMatchingKittyTab(error) && !isKittyUnavailable(error)) {
+    if (!backend.isMissingTabError(error) && !backend.isUnavailableError(error)) {
       throw error;
     }
   }
@@ -331,7 +298,8 @@ export async function removeOrphanContext(
 export async function renameManagedContext(
   input: RenameManagedInput,
   cwd = process.cwd(),
-  run: ExecFunction = exec
+  run: ExecFunction = exec,
+  backend: TerminalBackend = kittyBackend
 ): Promise<void> {
   const nextManagedName = buildManagedName(input.projectRoot, input.newBranch);
   const branchRef = input.branchId ?? input.oldBranch;
@@ -343,16 +311,13 @@ export async function renameManagedContext(
     if (!isMissingTmuxSession(error)) throw error;
   }
   try {
-    const tabMatch = input.oldKittyTabId !== undefined
-      ? `id:${input.oldKittyTabId}`
-      : `title:${input.oldKittyTabTitle}`;
-    await run(
-      "kitty",
-      ["@", "set-tab-title", "--match", tabMatch, nextManagedName],
-      cwd
-    );
+    if (backend.name === "kitty" && input.oldTerminalTabId !== undefined) {
+      await run("kitty", ["@", "set-tab-title", "--match", `id:${input.oldTerminalTabId}`, nextManagedName], cwd);
+    } else {
+      await backend.renameTab(input.oldTerminalTabTitle, nextManagedName, cwd, run);
+    }
   } catch (error) {
-    if (!isNoMatchingKittyTab(error) && !isKittyUnavailable(error)) throw error;
+    if (!backend.isMissingTabError(error) && !backend.isUnavailableError(error)) throw error;
   }
 }
 
@@ -474,17 +439,11 @@ async function readTmuxSessions(cwd: string): Promise<CommandResult<string[]>> {
   }
 }
 
-async function readKittyTabs(cwd: string): Promise<CommandResult<KittyTab[]>> {
-  try {
-    const { stdout } = await exec("kitty", ["@", "ls"], cwd);
-    return { ok: true, value: parseKittyTabs(stdout) };
-  } catch (error) {
-    return {
-      ok: false,
-      value: [],
-      error: `kitty @ ls failed: ${formatError(error)}`
-    };
-  }
+async function readTerminalTabs(
+  cwd: string,
+  backend: TerminalBackend
+): Promise<CommandResult<TerminalTab[]>> {
+  return await backend.listTabs(cwd, exec);
 }
 
 async function readAgentPanes(cwd: string): Promise<CommandResult<Record<string, AgentPane[]>>> {
@@ -534,84 +493,6 @@ function isLocalBranchName(name: string): boolean {
     !name.startsWith("origin/") &&
     !name.startsWith("refs/")
   );
-}
-
-export function parseKittyTabs(stdout: string): KittyTab[] {
-  const parsed = JSON.parse(stdout) as Array<{
-    id: number;
-    tabs?: Array<{ id: number; title: string; windows?: unknown[] }>;
-  }>;
-  return parsed.flatMap((osWindow) =>
-    (osWindow.tabs ?? []).map((tab, index) => ({
-      id: tab.id,
-      title: tab.title,
-      osWindowId: osWindow.id,
-      index
-    }))
-  );
-}
-
-async function readTargetTmuxClientTtyForKittyTab(
-  title: string,
-  cwd: string,
-  run: ExecFunction
-): Promise<string | undefined> {
-  try {
-    const [kittyLs, tmuxClients] = await Promise.all([
-      run("kitty", ["@", "ls"], cwd),
-      run("tmux", ["list-clients", "-F", "#{client_tty}\t#{session_name}\t#{client_pid}"], cwd)
-    ]);
-    const tabClient = parseKittyTabClients(kittyLs.stdout).find((tab) => tab.title === title);
-    if (!tabClient?.activeWindowPid) return undefined;
-    const tmuxClient = parseTmuxClients(tmuxClients.stdout).find(
-      (client) => client.pid === tabClient.activeWindowPid
-    );
-    return tmuxClient?.tty;
-  } catch {
-    return undefined;
-  }
-}
-
-function parseKittyTabClients(stdout: string): KittyTabClient[] {
-  const parsed = JSON.parse(stdout) as Array<{
-    tabs?: Array<{
-      title: string;
-      windows?: Array<{
-        is_active?: boolean;
-        pid?: number;
-        foreground_processes?: Array<{ pid?: number }>;
-      }>;
-    }>;
-  }>;
-
-  return parsed.flatMap((osWindow) =>
-    (osWindow.tabs ?? []).map((tab) => {
-      const activeWindow =
-        tab.windows?.find((window) => window.is_active) ?? tab.windows?.at(0);
-      const activeWindowPid =
-        activeWindow?.foreground_processes?.[0]?.pid ?? activeWindow?.pid;
-      return {
-        title: tab.title,
-        ...(activeWindowPid !== undefined ? { activeWindowPid } : {})
-      };
-    })
-  );
-}
-
-function parseTmuxClients(stdout: string): TmuxClient[] {
-  return stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [tty = "", sessionName = "", pidText = ""] = line.split("\t");
-      const pid = Number.parseInt(pidText, 10);
-      return {
-        tty,
-        sessionName,
-        ...(Number.isFinite(pid) ? { pid } : {})
-      };
-    });
 }
 
 export async function readAgentPanesFromTmuxOptions(
