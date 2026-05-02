@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FiRefreshCw, FiSettings, FiX } from "react-icons/fi";
+import { FiPlus, FiRefreshCw, FiSettings, FiX } from "react-icons/fi";
 import { createRoot } from "react-dom/client";
 import { DndProvider, useDrag, useDragLayer, useDrop } from "react-dnd";
 import { getEmptyImage, HTML5Backend } from "react-dnd-html5-backend";
@@ -399,8 +399,14 @@ export function App() {
 
         <header className="topbar">
           <div className="actions">
-            <button onClick={addProjectRoot} disabled={busy}>
-              Add project
+            <button
+              className="icon-button"
+              aria-label="Add project"
+              title="Add project (⌘O)"
+              onClick={addProjectRoot}
+              disabled={busy}
+            >
+              <FiPlus className="icon" size={15} aria-hidden="true" focusable="false" data-icon="add-project" />
             </button>
             <button
               className="icon-button"

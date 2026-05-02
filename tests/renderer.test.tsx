@@ -887,6 +887,8 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
     });
 
+    expect(screen.getByRole("button", { name: "Add project" })).toHaveAttribute("title", "Add project (⌘O)");
+    expect(screen.getByRole("button", { name: "Add project" }).querySelector('[data-icon="add-project"]')).not.toBeNull();
     expect(screen.getByRole("button", { name: "Reload" })).toHaveAttribute("title", "Reload (⌘R)");
     expect(screen.getByRole("button", { name: "Open settings" })).toHaveAttribute("title", "Settings (⌘,)");
     expect(screen.getByRole("button", { name: "Reload" }).querySelector('[data-icon="reload"]')).not.toBeNull();

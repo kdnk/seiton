@@ -1347,7 +1347,12 @@ describe("focusing contexts", () => {
       },
       {
         file: "kitty",
-        args: ["@", "focus-tab", "--match", "title:a"],
+        args: ["@", "ls"],
+        cwd: "/repo/a"
+      },
+      {
+        file: "kitty",
+        args: ["@", "focus-tab", "--match", "id:10"],
         cwd: "/repo/a"
       },
       {
@@ -1364,6 +1369,100 @@ describe("focusing contexts", () => {
         file: "tmux",
         args: ["switch-client", "-c", "/dev/ttys000", "-t", "a"],
         cwd: "/repo/a"
+      }
+    ]);
+  });
+
+  it("focuses a workspace session by exact kitty tab title when managed tabs share the project name", async () => {
+    const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const exec: ExecFunction = async (file, args, cwd) => {
+      calls.push({ file, args, cwd });
+      if (file === "tmux" && args[0] === "has-session") {
+        return { stdout: "", stderr: "" };
+      }
+      if (file === "kitty" && args[1] === "ls") {
+        return {
+          stdout: JSON.stringify([
+            {
+              id: 1,
+              tabs: [
+                {
+                  id: 10,
+                  title: "s_seiton_feat%2Fbugfix",
+                  windows: [
+                    {
+                      is_active: false,
+                      pid: 4321,
+                      foreground_processes: [{ pid: 4321 }]
+                    }
+                  ]
+                },
+                {
+                  id: 11,
+                  title: "seiton",
+                  windows: [
+                    {
+                      is_active: true,
+                      pid: 1234,
+                      foreground_processes: [{ pid: 1234 }]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]),
+          stderr: ""
+        };
+      }
+      if (file === "kitty" && args[1] === "focus-tab") {
+        return { stdout: "", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "list-clients") {
+        return { stdout: "/dev/ttys000\tseiton\t1234\n", stderr: "" };
+      }
+      if (file === "tmux" && args[0] === "switch-client") {
+        return { stdout: "", stderr: "" };
+      }
+      throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+    };
+
+    await focusWorkspaceSession(
+      "/Users/kodai/workspaces/github.com/kdnk/seiton",
+      undefined,
+      "/Users/kodai/workspaces/github.com/kdnk/seiton",
+      exec
+    );
+
+    expect(calls).toEqual([
+      {
+        file: "tmux",
+        args: ["has-session", "-t", "seiton"],
+        cwd: "/Users/kodai/workspaces/github.com/kdnk/seiton"
+      },
+      {
+        file: "kitty",
+        args: ["@", "ls"],
+        cwd: "/Users/kodai/workspaces/github.com/kdnk/seiton"
+      },
+      {
+        file: "kitty",
+        args: ["@", "focus-tab", "--match", "id:11"],
+        cwd: "/Users/kodai/workspaces/github.com/kdnk/seiton"
+      },
+      {
+        file: "kitty",
+        args: ["@", "ls"],
+        cwd: "/Users/kodai/workspaces/github.com/kdnk/seiton"
+      },
+      {
+        file: "tmux",
+        args: ["list-clients", "-F", "#{client_tty}\t#{session_name}\t#{client_pid}"],
+        cwd: "/Users/kodai/workspaces/github.com/kdnk/seiton"
+      },
+      {
+        file: "tmux",
+        args: ["switch-client", "-c", "/dev/ttys000", "-t", "seiton"],
+        cwd: "/Users/kodai/workspaces/github.com/kdnk/seiton"
       }
     ]);
   });

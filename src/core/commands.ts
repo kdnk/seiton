@@ -6,7 +6,7 @@ import { appendActivityLog } from "./activity-log";
 import { emitLiveUpdate } from "./live-updates";
 import { buildManagedName, buildWorkspaceSessionName, type AgentName, type AgentPane, type Branch, type SyncCommand, type TerminalBackendName, type TerminalTab } from "./model";
 import type { CommandResult, ExecFunction, TerminalBackend } from "./terminal-backend";
-import { kittyBackend } from "./terminal-backends/kitty";
+import { kittyBackend, parseKittyTabs } from "./terminal-backends/kitty";
 import { weztermBackend } from "./terminal-backends/wezterm";
 
 export type { ExecFunction } from "./terminal-backend";
@@ -188,7 +188,7 @@ export async function focusWorkspaceSession(
   run: ExecFunction = exec,
   backend: TerminalBackend = kittyBackend
 ): Promise<void> {
-  await focusSessionByName(buildWorkspaceSessionName(projectRoot), paneId, cwd, run, backend);
+  await focusSessionByName(buildWorkspaceSessionName(projectRoot), paneId, cwd, run, backend, true);
 }
 
 export async function createWorkspaceSession(
@@ -205,9 +205,16 @@ async function focusSessionByName(
   paneId: string | undefined,
   cwd: string,
   run: ExecFunction,
-  backend: TerminalBackend
+  backend: TerminalBackend,
+  preferExactKittyTitle = false
 ): Promise<void> {
-  const { hasTerminal, terminalAvailable } = await ensureSessionResources(title, cwd, run, backend);
+  const { hasTerminal, terminalAvailable } = await ensureSessionResources(
+    title,
+    cwd,
+    run,
+    backend,
+    preferExactKittyTitle
+  );
 
   const targetClientTty = terminalAvailable && hasTerminal
     ? await backend.resolveTargetTmuxClientTty(title, cwd, run)
@@ -239,7 +246,8 @@ async function ensureSessionResources(
   title: string,
   cwd: string,
   run: ExecFunction,
-  backend: TerminalBackend
+  backend: TerminalBackend,
+  preferExactKittyTitle = false
 ): Promise<{ hasTerminal: boolean; terminalAvailable: boolean }> {
   let hasTmux = true;
   try {
@@ -255,7 +263,11 @@ async function ensureSessionResources(
   let hasTerminal = true;
   let terminalAvailable = true;
   try {
-    await backend.focusTab(title, cwd, run);
+    if (preferExactKittyTitle && backend.name === "kitty") {
+      await focusKittyTabByExactTitle(title, cwd, run);
+    } else {
+      await backend.focusTab(title, cwd, run);
+    }
   } catch (error) {
     if (backend.isUnavailableError(error)) {
       terminalAvailable = false;
@@ -270,6 +282,19 @@ async function ensureSessionResources(
     await backend.ensureTab({ title, tmuxSession: title, cwd, run });
   }
   return { hasTerminal, terminalAvailable };
+}
+
+async function focusKittyTabByExactTitle(
+  title: string,
+  cwd: string,
+  run: ExecFunction
+): Promise<void> {
+  const { stdout } = await run("kitty", ["@", "ls"], cwd);
+  const exactTab = parseKittyTabs(stdout).find((tab) => tab.title === title);
+  if (!exactTab) {
+    throw new Error(`No matching tabs for expression: exact-title:${title}`);
+  }
+  await run("kitty", ["@", "focus-tab", "--match", `id:${exactTab.id}`], cwd);
 }
 
 export async function removeOrphanContext(
