@@ -538,10 +538,13 @@ button.primary {
 .status.running,
 .status.waiting,
 .status.order_drift,
-.status.missing_terminal,
 .status.missing_tmux,
 .status.rename_pending {
   background: var(--amber);
+}
+
+.status.missing_terminal {
+  background: var(--blue);
 }
 
 .status.error,
