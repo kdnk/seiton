@@ -498,8 +498,18 @@ button.primary {
     gap: 8px;
   }
 
+  .context-main.context-main-inline-actions {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
   .context-actions {
     justify-content: flex-start;
+  }
+
+  .context-main-inline-actions .context-actions {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
   }
 }
 

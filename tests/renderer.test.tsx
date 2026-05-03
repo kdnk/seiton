@@ -185,6 +185,50 @@ describe("App", () => {
     });
   });
 
+  it("marks orphan rows for inline action layout", async () => {
+    const refresh = vi.fn().mockResolvedValue({
+      projectsWithContexts: [
+        {
+          project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+          workspaceSession: undefined,
+          contexts: [
+            {
+              id: "ctx-1",
+              type: "managed",
+              projectRoot: "/repo/a",
+              branch: "feature/notify-ui",
+              branchKey: "feature%2Fnotify-ui",
+              tmuxSession: "s_a_feature%2Fnotify-ui",
+              terminalTabTitle: "s_a_feature%2Fnotify-ui",
+              agentPanes: [],
+              order: 10,
+              status: "orphan_tmux"
+            }
+          ]
+        }
+      ],
+      warnings: []
+    });
+    window.seiton = {
+      refresh,
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
+    } as never;
+
+    render(<App />);
+
+    const removeButton = await screen.findByRole("button", { name: "Remove orphan feature/notify-ui" });
+
+    expect(removeButton.closest(".context-main")).toHaveClass("context-main-inline-actions");
+  });
+
   it("renames a context through the inline editor", async () => {
     const refresh = vi.fn().mockResolvedValue({
       projectsWithContexts: [
@@ -1019,6 +1063,69 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(reloadButton.querySelector('[data-icon="reload"]')?.classList.contains("spinning")).toBe(false);
+    });
+  });
+
+  it("disables the branch rename button while refresh is in progress", async () => {
+    let resolveRefresh: ((value: SeitonState) => void) | undefined;
+    const state: SeitonState = {
+      projectsWithContexts: [
+        {
+          project: { root: "/repo/a", name: "a", projectKey: "%2Frepo%2Fa", order: 10, enabled: true },
+          workspaceSession: undefined,
+          contexts: [
+            {
+              id: "ctx-1",
+              type: "managed" as const,
+              projectRoot: "/repo/a",
+              branch: "feature/notify-ui",
+              branchKey: "feature%2Fnotify-ui",
+              tmuxSession: "s_a_feature%2Fnotify-ui",
+              terminalTabTitle: "s_a_feature%2Fnotify-ui",
+              agentPanes: [],
+              order: 10,
+              status: "ready" as const
+            }
+          ]
+        }
+      ],
+      warnings: []
+    };
+    const refresh = vi.fn()
+      .mockResolvedValueOnce(state)
+      .mockImplementationOnce(
+        () =>
+          new Promise<SeitonState>((resolve) => {
+            resolveRefresh = resolve;
+          })
+      );
+
+    window.seiton = {
+      refresh,
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn()
+    } as never;
+
+    render(<App />);
+
+    const renameButton = await screen.findByRole("button", { name: "Rename feature/notify-ui" });
+    expect(renameButton).not.toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+
+    expect(renameButton).toBeDisabled();
+
+    resolveRefresh?.(state);
+
+    await waitFor(() => {
+      expect(renameButton).not.toBeDisabled();
     });
   });
 
