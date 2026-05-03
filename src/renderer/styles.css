@@ -262,10 +262,6 @@ button.primary {
   color: var(--muted);
 }
 
-.workspace-session-badge {
-  color: #8aa2c7;
-}
-
 .context-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

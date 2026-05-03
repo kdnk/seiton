@@ -848,11 +848,10 @@ function WorkspaceSessionSection({
       <div className="context-stack">
         <div className="context-main">
           <div className="context-head">
-            <span className="agent-pane-badge workspace-session-badge">Workspace Session</span>
+            <strong>Workspace Session</strong>
             {workspaceSession && workspaceSession.status !== "ready" ? (
               <span className={`status ${workspaceSession.status}`}>{workspaceSession.status}</span>
             ) : null}
-            <strong>{sessionName}</strong>
           </div>
         </div>
         {!workspaceSession ? (
