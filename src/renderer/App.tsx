@@ -1010,7 +1010,12 @@ function ContextRow({
         }}
       >
         <div className="context-stack">
-          <div className="context-main">
+          <div
+            className={classNames(
+              "context-main",
+              context.status === "orphan_tmux" && "context-main-inline-actions"
+            )}
+          >
             <div className="context-head">
               {shouldRenderContextStatus(context.status) ? (
                 <span className={`status ${context.status}`}>{context.status}</span>
@@ -1038,6 +1043,7 @@ function ContextRow({
                 <button
                   type="button"
                   className="branch-label"
+                  disabled={busy || context.status === "orphan_tmux"}
                   onClick={(event) => {
                     event.stopPropagation();
                     if (busy || context.status === "orphan_tmux") return;
