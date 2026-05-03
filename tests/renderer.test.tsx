@@ -649,7 +649,16 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Remove root b" }));
+    const removeButton = await screen.findByRole("button", { name: "Remove root b" });
+    fireEvent.pointerMove(removeButton);
+    fireEvent.focus(removeButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole("tooltip")).toHaveTextContent("Remove project b");
+    });
+
+    fireEvent.blur(removeButton);
+    fireEvent.click(removeButton);
 
     await waitFor(() => {
       expect(removeProjectRoot).toHaveBeenCalledWith("/repo/b");
@@ -887,12 +896,24 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
     });
 
-    expect(screen.getByRole("button", { name: "Add project" })).toHaveAttribute("title", "Add project (⌘O)");
     expect(screen.getByRole("button", { name: "Add project" }).querySelector('[data-icon="add-project"]')).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Reload" })).toHaveAttribute("title", "Reload (⌘R)");
-    expect(screen.getByRole("button", { name: "Open settings" })).toHaveAttribute("title", "Settings (⌘,)");
     expect(screen.getByRole("button", { name: "Reload" }).querySelector('[data-icon="reload"]')).not.toBeNull();
     expect(screen.getByRole("button", { name: "Open settings" }).querySelector('[data-icon="settings"]')).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Add project" })).not.toHaveAttribute("title");
+    expect(screen.getByRole("button", { name: "Reload" })).not.toHaveAttribute("title");
+    expect(screen.getByRole("button", { name: "Open settings" })).not.toHaveAttribute("title");
+
+    const reloadButton = screen.getByRole("button", { name: "Reload" });
+    fireEvent.pointerMove(reloadButton);
+    fireEvent.focus(reloadButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole("tooltip")).toHaveTextContent("Reload projects and contexts");
+    });
+
+    expect(reloadButton).toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("⌘R");
+    fireEvent.blur(reloadButton);
 
     fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
 

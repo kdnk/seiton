@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Kbd, Theme, Tooltip } from "@radix-ui/themes";
 import { FiPlus, FiRefreshCw, FiSettings, FiX } from "react-icons/fi";
 import { createRoot } from "react-dom/client";
 import { DndProvider, useDrag, useDragLayer, useDrop } from "react-dnd";
 import { getEmptyImage, HTML5Backend } from "react-dnd-html5-backend";
 import type { CliCommandStatus, SeitonSettings } from "../../electron/preload";
 import type { AgentPane, Context, ProjectContexts, WorkspaceSession } from "../core/model";
+import "@radix-ui/themes/styles.css";
 import "./styles.css";
 
 type ViewState = {
@@ -396,216 +398,259 @@ export function App() {
   }
 
   return (
-    <DndProvider backend={HTML5Backend}>
-      <main className="app-shell">
-        <DragPreviewLayer />
+    <Theme appearance="dark" hasBackground={false}>
+      <DndProvider backend={HTML5Backend}>
+        <main className="app-shell">
+          <DragPreviewLayer />
 
-        <header className="topbar">
-          <div className="actions">
-            <button
-              className="icon-button"
-              aria-label="Add project"
-              title="Add project (⌘O)"
-              onClick={addProjectRoot}
-              disabled={busy}
-            >
-              <FiPlus className="icon" size={15} aria-hidden="true" focusable="false" data-icon="add-project" />
-            </button>
-            <button
-              className="icon-button"
-              aria-label="Reload"
-              title="Reload (⌘R)"
-              onClick={refresh}
-              disabled={busy}
-            >
-              <FiRefreshCw
-                className={classNames("icon", refreshing && "spinning")}
-                size={15}
-                aria-hidden="true"
-                focusable="false"
-                data-icon="reload"
-              />
-            </button>
-            <button
-              className="icon-button"
-              aria-label="Open settings"
-              title="Settings (⌘,)"
-              onClick={() => setSettingsOpen(true)}
-              disabled={busy}
-            >
-              <FiSettings className="icon" size={15} aria-hidden="true" focusable="false" data-icon="settings" />
-            </button>
-          </div>
-        </header>
+          <header className="topbar">
+            <div className="actions">
+              <IconTooltipButton
+                label="Add project"
+                shortcut="⌘O"
+                onClick={addProjectRoot}
+                disabled={busy}
+              >
+                <FiPlus className="icon" size={15} aria-hidden="true" focusable="false" data-icon="add-project" />
+              </IconTooltipButton>
+              <IconTooltipButton
+                label="Reload projects and contexts"
+                ariaLabel="Reload"
+                shortcut="⌘R"
+                onClick={refresh}
+                disabled={busy}
+              >
+                <FiRefreshCw
+                  className={classNames("icon", refreshing && "spinning")}
+                  size={15}
+                  aria-hidden="true"
+                  focusable="false"
+                  data-icon="reload"
+                />
+              </IconTooltipButton>
+              <IconTooltipButton
+                label="Open settings"
+                ariaLabel="Open settings"
+                shortcut="⌘,"
+                onClick={() => setSettingsOpen(true)}
+                disabled={busy}
+              >
+                <FiSettings className="icon" size={15} aria-hidden="true" focusable="false" data-icon="settings" />
+              </IconTooltipButton>
+            </div>
+          </header>
 
-        <section className="workspace-frame">
-          {state.warnings.length > 0 ? (
-            <section className="panel warning-strip" aria-label="Warnings">
-              <header>
-                <h2>Warnings</h2>
-                <span>{state.warnings.length}</span>
-              </header>
-              <div className="warnings-row">
-                {state.warnings.map((warning, i) => (
-                  <p key={i}>{warning}</p>
-                ))}
-              </div>
-            </section>
+          <section className="workspace-frame">
+            {state.warnings.length > 0 ? (
+              <section className="panel warning-strip" aria-label="Warnings">
+                <header>
+                  <h2>Warnings</h2>
+                  <span>{state.warnings.length}</span>
+                </header>
+                <div className="warnings-row">
+                  {state.warnings.map((warning, i) => (
+                    <p key={i}>{warning}</p>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            <div className="main-content">
+              {state.projectsWithContexts.map((pc, projectIndex) => (
+                <ProjectSection
+                  key={pc.project.root}
+                  projectWithContexts={pc}
+                  projectIndex={projectIndex}
+                  busy={busy}
+                  onMoveProject={moveProject}
+                  onMoveContext={moveContext}
+                  onFocus={focusContext}
+                  onFocusWorkspaceSession={focusWorkspaceSession}
+                  onFocusPane={focusPane}
+                  onRename={renameContext}
+                  onRemoveOrphan={removeOrphan}
+                  onCreateWorkspaceSession={createWorkspaceSession}
+                  onRemoveProjectRoot={removeProjectRoot}
+                />
+              ))}
+            </div>
+          </section>
+
+          {settingsOpen && cliStatus ? (
+            <div
+              className="modal-backdrop"
+              onClick={() => setSettingsOpen(false)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setSettingsOpen(false);
+              }}
+              role="presentation"
+            >
+              <section
+                className="panel settings-modal"
+                aria-label="Settings"
+                role="dialog"
+                aria-modal="true"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <header>
+                  <h2>Settings</h2>
+                  <button
+                    className="icon-button settings-close-button"
+                    aria-label="Close settings"
+                    onClick={() => setSettingsOpen(false)}
+                  >
+                    <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
+                  </button>
+                </header>
+                <div className="settings-body">
+                  <div className="settings-copy settings-group">
+                    <p className="settings-title">Terminal backend</p>
+                    <p className="settings-text">
+                      Choose the terminal Seiton controls for tab-focused workflows across all projects.
+                    </p>
+                    <div className="settings-radio-group" role="radiogroup" aria-label="Terminal backend">
+                      <label className="settings-radio">
+                        <input
+                          type="radio"
+                          name="terminal-backend"
+                          checked={settings.terminalBackend === "kitty"}
+                          onChange={() => void updateTerminalBackend("kitty")}
+                        />
+                        <span>kitty</span>
+                      </label>
+                      <label className="settings-radio">
+                        <input
+                          type="radio"
+                          name="terminal-backend"
+                          checked={settings.terminalBackend === "wezterm"}
+                          onChange={() => void updateTerminalBackend("wezterm")}
+                        />
+                        <span>wezterm</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="settings-copy">
+                    <p className="settings-title">Install `seiton` in PATH</p>
+                    <p className="settings-text">
+                      {cliStatus.installed && cliStatus.availableOnPath
+                        ? "`seiton` is ready to use from your shell."
+                        : cliStatus.installed
+                          ? "The command is installed, but the target directory is not on PATH yet."
+                          : "Install a user-level `seiton` command for Codex hooks and shell usage."}
+                    </p>
+                    <div className="settings-meta">
+                      <span>{cliStatus.targetPath}</span>
+                      <span>{cliStatus.installed ? "installed" : "not installed"}</span>
+                      <span>{cliStatus.targetDirOnPath ? "PATH ok" : "PATH missing"}</span>
+                    </div>
+                    {cliStatus.pathHint ? (
+                      <p className="settings-hint">{cliStatus.pathHint}</p>
+                    ) : null}
+                  </div>
+                  <div className="settings-actions">
+                    <button onClick={refreshCliStatus} disabled={busy}>Refresh</button>
+                    <button className="primary" onClick={installCliCommand} disabled={busy || previewMode}>
+                      Install Command
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </div>
           ) : null}
 
-          <div className="main-content">
-            {state.projectsWithContexts.map((pc, projectIndex) => (
-              <ProjectSection
-                key={pc.project.root}
-                projectWithContexts={pc}
-                projectIndex={projectIndex}
-                busy={busy}
-                onMoveProject={moveProject}
-                onMoveContext={moveContext}
-                onFocus={focusContext}
-                onFocusWorkspaceSession={focusWorkspaceSession}
-                onFocusPane={focusPane}
-                onRename={renameContext}
-                onRemoveOrphan={removeOrphan}
-                onCreateWorkspaceSession={createWorkspaceSession}
-                onRemoveProjectRoot={removeProjectRoot}
-              />
-            ))}
-          </div>
-        </section>
-
-        {settingsOpen && cliStatus ? (
-          <div
-            className="modal-backdrop"
-            onClick={() => setSettingsOpen(false)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setSettingsOpen(false);
-            }}
-            role="presentation"
-          >
-            <section
-              className="panel settings-modal"
-              aria-label="Settings"
-              role="dialog"
-              aria-modal="true"
-              onClick={(event) => event.stopPropagation()}
+          {shortcutsOpen ? (
+            <div
+              className="modal-backdrop"
+              onClick={() => setShortcutsOpen(false)}
+              role="presentation"
             >
-              <header>
-                <h2>Settings</h2>
-                <button
-                  className="icon-button settings-close-button"
-                  aria-label="Close settings"
-                  onClick={() => setSettingsOpen(false)}
-                >
-                  <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
-                </button>
-              </header>
-              <div className="settings-body">
-                <div className="settings-copy settings-group">
-                  <p className="settings-title">Terminal backend</p>
-                  <p className="settings-text">
-                    Choose the terminal Seiton controls for tab-focused workflows across all projects.
-                  </p>
-                  <div className="settings-radio-group" role="radiogroup" aria-label="Terminal backend">
-                    <label className="settings-radio">
-                      <input
-                        type="radio"
-                        name="terminal-backend"
-                        checked={settings.terminalBackend === "kitty"}
-                        onChange={() => void updateTerminalBackend("kitty")}
-                      />
-                      <span>kitty</span>
-                    </label>
-                    <label className="settings-radio">
-                      <input
-                        type="radio"
-                        name="terminal-backend"
-                        checked={settings.terminalBackend === "wezterm"}
-                        onChange={() => void updateTerminalBackend("wezterm")}
-                      />
-                      <span>wezterm</span>
-                    </label>
-                  </div>
-                </div>
-                <div className="settings-copy">
-                  <p className="settings-title">Install `seiton` in PATH</p>
-                  <p className="settings-text">
-                    {cliStatus.installed && cliStatus.availableOnPath
-                      ? "`seiton` is ready to use from your shell."
-                      : cliStatus.installed
-                        ? "The command is installed, but the target directory is not on PATH yet."
-                        : "Install a user-level `seiton` command for Codex hooks and shell usage."}
-                  </p>
-                  <div className="settings-meta">
-                    <span>{cliStatus.targetPath}</span>
-                    <span>{cliStatus.installed ? "installed" : "not installed"}</span>
-                    <span>{cliStatus.targetDirOnPath ? "PATH ok" : "PATH missing"}</span>
-                  </div>
-                  {cliStatus.pathHint ? (
-                    <p className="settings-hint">{cliStatus.pathHint}</p>
-                  ) : null}
-                </div>
-                <div className="settings-actions">
-                  <button onClick={refreshCliStatus} disabled={busy}>Refresh</button>
-                  <button className="primary" onClick={installCliCommand} disabled={busy || previewMode}>
-                    Install Command
+              <section
+                className="panel shortcuts-modal"
+                aria-label="Keyboard shortcuts"
+                role="dialog"
+                aria-modal="true"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <header>
+                  <h2>Shortcuts</h2>
+                  <button
+                    className="icon-button"
+                    aria-label="Close shortcuts"
+                    onClick={() => setShortcutsOpen(false)}
+                  >
+                    <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
                   </button>
-                </div>
-              </div>
-            </section>
-          </div>
-        ) : null}
+                </header>
+                <dl className="shortcuts-list">
+                  <div className="shortcut-row">
+                    <dt><kbd>⌘</kbd> <kbd>R</kbd></dt>
+                    <dd>Reload</dd>
+                  </div>
+                  <div className="shortcut-row">
+                    <dt><kbd>⌘</kbd> <kbd>,</kbd></dt>
+                    <dd>Open settings</dd>
+                  </div>
+                  <div className="shortcut-row">
+                    <dt><kbd>⌘</kbd> <kbd>O</kbd></dt>
+                    <dd>Add project</dd>
+                  </div>
+                  <div className="shortcut-row">
+                    <dt><kbd>⌘</kbd> <kbd>S</kbd></dt>
+                    <dd>Apply</dd>
+                  </div>
+                  <div className="shortcut-row">
+                    <dt><kbd>⌘</kbd> <kbd>/</kbd></dt>
+                    <dd>Toggle this panel</dd>
+                  </div>
+                </dl>
+              </section>
+            </div>
+          ) : null}
+        </main>
+      </DndProvider>
+    </Theme>
+  );
+}
 
-        {shortcutsOpen ? (
-          <div
-            className="modal-backdrop"
-            onClick={() => setShortcutsOpen(false)}
-            role="presentation"
-          >
-            <section
-              className="panel shortcuts-modal"
-              aria-label="Keyboard shortcuts"
-              role="dialog"
-              aria-modal="true"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <header>
-                <h2>Shortcuts</h2>
-                <button
-                  className="icon-button"
-                  aria-label="Close shortcuts"
-                  onClick={() => setShortcutsOpen(false)}
-                >
-                  <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
-                </button>
-              </header>
-              <dl className="shortcuts-list">
-                <div className="shortcut-row">
-                  <dt><kbd>⌘</kbd> <kbd>R</kbd></dt>
-                  <dd>Reload</dd>
-                </div>
-                <div className="shortcut-row">
-                  <dt><kbd>⌘</kbd> <kbd>,</kbd></dt>
-                  <dd>Open settings</dd>
-                </div>
-                <div className="shortcut-row">
-                  <dt><kbd>⌘</kbd> <kbd>O</kbd></dt>
-                  <dd>Add project</dd>
-                </div>
-                <div className="shortcut-row">
-                  <dt><kbd>⌘</kbd> <kbd>S</kbd></dt>
-                  <dd>Apply</dd>
-                </div>
-                <div className="shortcut-row">
-                  <dt><kbd>⌘</kbd> <kbd>/</kbd></dt>
-                  <dd>Toggle this panel</dd>
-                </div>
-              </dl>
-            </section>
-          </div>
-        ) : null}
-      </main>
-    </DndProvider>
+function IconTooltipButton({
+  label,
+  ariaLabel,
+  shortcut,
+  onClick,
+  disabled,
+  className,
+  side = "bottom",
+  children
+}: {
+  label: string;
+  ariaLabel?: string;
+  shortcut?: string;
+  onClick: () => void;
+  disabled: boolean;
+  className?: string;
+  side?: "top" | "right" | "bottom" | "left";
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip
+      content={(
+        <span className="icon-tooltip-content">
+          <span>{label}</span>
+          {shortcut ? <Kbd>{shortcut}</Kbd> : null}
+        </span>
+      )}
+      delayDuration={0}
+      side={side}
+    >
+      <button
+        className={className ?? "icon-button"}
+        aria-label={ariaLabel ?? label}
+        onClick={onClick}
+        disabled={disabled}
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -717,14 +762,16 @@ function ProjectSection({
             </div>
           </div>
           <div className="project-actions">
-            <button
+            <IconTooltipButton
               className="danger-icon"
-              aria-label={`Remove root ${project.name}`}
-              disabled={busy}
+              label={`Remove project ${project.name}`}
+              ariaLabel={`Remove root ${project.name}`}
+              side="left"
               onClick={() => onRemoveProjectRoot(project.root)}
+              disabled={busy}
             >
               <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
-            </button>
+            </IconTooltipButton>
           </div>
         </header>
         {warnings.length > 0 ? (
