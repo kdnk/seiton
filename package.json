@@ -22,6 +22,7 @@
     "publish": "npm run build && electron-builder --publish always"
   },
   "dependencies": {
+    "@radix-ui/themes": "^3.3.0",
     "@vitejs/plugin-react": "^5.1.1",
     "react": "^19.2.3",
     "react-dnd": "^16.0.1",
