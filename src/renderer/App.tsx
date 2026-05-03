@@ -149,6 +149,7 @@ export function App() {
   const [settings, setSettings] = useState<SeitonSettings>({ terminalBackend: "kitty" });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const busyRef = useRef(false);
 
   function pushGlobalWarning(warning: string) {
     setState((current) => ({
@@ -174,6 +175,18 @@ export function App() {
     if (!window.seiton?.onStateUpdated) return;
     return window.seiton.onStateUpdated((next) => {
       setState(next);
+    });
+  }, []);
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
+  useEffect(() => {
+    if (!window.seiton?.onWindowFocused) return;
+    return window.seiton.onWindowFocused(() => {
+      if (busyRef.current) return;
+      void refresh();
     });
   }, []);
 

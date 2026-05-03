@@ -69,6 +69,15 @@ const api = {
     return () => {
       ipcRenderer.removeListener("seiton:state-updated", wrapped);
     };
+  },
+  onWindowFocused: (listener: () => void) => {
+    const wrapped = () => {
+      listener();
+    };
+    ipcRenderer.on("seiton:window-focused", wrapped);
+    return () => {
+      ipcRenderer.removeListener("seiton:window-focused", wrapped);
+    };
   }
 };
 
