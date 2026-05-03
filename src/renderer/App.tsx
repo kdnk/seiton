@@ -618,13 +618,17 @@ function IconTooltipButton({
   shortcut,
   onClick,
   disabled,
+  className,
+  side = "bottom",
   children
 }: {
   label: string;
   ariaLabel?: string;
-  shortcut: string;
+  shortcut?: string;
   onClick: () => void;
   disabled: boolean;
+  className?: string;
+  side?: "top" | "right" | "bottom" | "left";
   children: ReactNode;
 }) {
   return (
@@ -632,14 +636,14 @@ function IconTooltipButton({
       content={(
         <span className="icon-tooltip-content">
           <span>{label}</span>
-          <Kbd>{shortcut}</Kbd>
+          {shortcut ? <Kbd>{shortcut}</Kbd> : null}
         </span>
       )}
       delayDuration={0}
-      side="bottom"
+      side={side}
     >
       <button
-        className="icon-button"
+        className={className ?? "icon-button"}
         aria-label={ariaLabel ?? label}
         onClick={onClick}
         disabled={disabled}
@@ -758,14 +762,16 @@ function ProjectSection({
             </div>
           </div>
           <div className="project-actions">
-            <button
+            <IconTooltipButton
               className="danger-icon"
-              aria-label={`Remove root ${project.name}`}
-              disabled={busy}
+              label={`Remove project ${project.name}`}
+              ariaLabel={`Remove root ${project.name}`}
+              side="left"
               onClick={() => onRemoveProjectRoot(project.root)}
+              disabled={busy}
             >
               <FiX className="icon" size={15} aria-hidden="true" focusable="false" data-icon="close" />
-            </button>
+            </IconTooltipButton>
           </div>
         </header>
         {warnings.length > 0 ? (

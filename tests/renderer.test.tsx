@@ -649,7 +649,16 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Remove root b" }));
+    const removeButton = await screen.findByRole("button", { name: "Remove root b" });
+    fireEvent.pointerMove(removeButton);
+    fireEvent.focus(removeButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole("tooltip")).toHaveTextContent("Remove project b");
+    });
+
+    fireEvent.blur(removeButton);
+    fireEvent.click(removeButton);
 
     await waitFor(() => {
       expect(removeProjectRoot).toHaveBeenCalledWith("/repo/b");
