@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { access, lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { attachReloadOnFocus } from "./window-focus";
 import { applySyncCommand, createWorkspaceSession, focusContext, focusWorkspaceSession, getTerminalBackend, readFullSystemSnapshot, readSystemSnapshotForCwd, removeOrphanContext, renameManagedContext } from "../src/core/commands";
 import { watchLiveUpdates } from "../src/core/live-updates";
 import {
@@ -78,6 +79,7 @@ async function createWindow(): Promise<void> {
       spellcheck: false
     }
   });
+  attachReloadOnFocus(win);
 
   if (isDev) {
     await win.loadURL(process.env.VITE_DEV_SERVER_URL as string);

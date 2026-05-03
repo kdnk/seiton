@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { App } from "../src/renderer/App";
 import type { SeitonState } from "../electron/preload";
+import { App } from "../src/renderer/App";
 
 describe("App", () => {
   afterEach(() => {
@@ -252,6 +252,59 @@ describe("App", () => {
         oldTerminalTabTitle: "s_a_feature%2Fnotify-ui",
         newBranch: "feature/renamed-ui"
       });
+    });
+  });
+
+  it("refreshes through the existing reload flow when the window regains focus", async () => {
+    const focusListeners: Array<() => void> = [];
+    let resolveRefresh: ((value: {
+      projectsWithContexts: never[];
+      warnings: never[];
+    }) => void) | undefined;
+    const refresh = vi
+      .fn()
+      .mockResolvedValueOnce({ projectsWithContexts: [], warnings: [] })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRefresh = resolve;
+          })
+      );
+
+    window.seiton = {
+      refresh,
+      sync: vi.fn(),
+      addProjectRoot: vi.fn(),
+      focus: vi.fn(),
+      renameContext: vi.fn(),
+      reorderProjects: vi.fn(),
+      reorderContexts: vi.fn(),
+      removeOrphan: vi.fn(),
+      getCliCommandStatus: vi.fn().mockResolvedValue(null),
+      installCliCommand: vi.fn(),
+      onWindowFocused: (listener: () => void) => {
+        focusListeners.push(listener);
+        return () => {};
+      }
+    } as never;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    focusListeners[0]?.();
+
+    await waitFor(() => {
+      expect(refresh).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole("button", { name: "Reload" })).toBeDisabled();
+    });
+
+    resolveRefresh?.({ projectsWithContexts: [], warnings: [] });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Reload" })).not.toBeDisabled();
     });
   });
 

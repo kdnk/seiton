@@ -149,6 +149,7 @@ export function App() {
   const [settings, setSettings] = useState<SeitonSettings>({ terminalBackend: "kitty" });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const busyRef = useRef(false);
 
   function pushGlobalWarning(warning: string) {
     setState((current) => ({
@@ -174,6 +175,18 @@ export function App() {
     if (!window.seiton?.onStateUpdated) return;
     return window.seiton.onStateUpdated((next) => {
       setState(next);
+    });
+  }, []);
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
+  useEffect(() => {
+    if (!window.seiton?.onWindowFocused) return;
+    return window.seiton.onWindowFocused(() => {
+      if (busyRef.current) return;
+      void refresh();
     });
   }, []);
 
@@ -848,11 +861,10 @@ function WorkspaceSessionSection({
       <div className="context-stack">
         <div className="context-main">
           <div className="context-head">
-            <span className="agent-pane-badge workspace-session-badge">Workspace Session</span>
+            <strong>Workspace Session</strong>
             {workspaceSession && workspaceSession.status !== "ready" ? (
               <span className={`status ${workspaceSession.status}`}>{workspaceSession.status}</span>
             ) : null}
-            <strong>{sessionName}</strong>
           </div>
         </div>
         {!workspaceSession ? (
